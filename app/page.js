@@ -62,7 +62,7 @@ export default function Home() {
     const query = new URLSearchParams({ code: roomCode });
     if (playerId) query.set('player_id', playerId);
 
-    const response = await fetch(`/api/quiz?${query.toString()}`, {
+    const response = await fetch('/api/quiz?${query.toString()}', {
       cache: 'no-store',
     });
     const data = await response.json();
