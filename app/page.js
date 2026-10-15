@@ -1,4 +1,3 @@
-```jsx
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
@@ -10,8 +9,13 @@ async function api(payload) {
     body: payload ? JSON.stringify(payload) : undefined,
     cache: 'no-store',
   });
+
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || 'Не удалось выполнить запрос');
+
+  if (!response.ok) {
+    throw new Error(data.error || 'Не удалось выполнить запрос');
+  }
+
   return data;
 }
 
@@ -30,6 +34,7 @@ export default function Home() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const invite = params.get('code');
+
     if (invite) {
       setCode(invite.toUpperCase());
       setMode('join');
@@ -38,7 +43,9 @@ export default function Home() {
 
   const refresh = useCallback(async () => {
     const activeCode = room?.room_code || code;
+
     if (!activeCode) return;
+
     try {
       setState(await apiGetState(activeCode, player?.id));
     } catch (e) {
@@ -51,7 +58,9 @@ export default function Home() {
 
     const timer = setInterval(async () => {
       try {
-        setState(await apiGetState(room?.room_code || code, player?.id));
+        setState(
+          await apiGetState(room?.room_code || code, player?.id)
+        );
       } catch (_) {}
     }, 2200);
 
@@ -60,11 +69,16 @@ export default function Home() {
 
   async function apiGetState(roomCode, playerId) {
     const query = new URLSearchParams({ code: roomCode });
-    if (playerId) query.set('player_id', playerId);
 
-    const response = await fetch('/api/quiz?${query.toString()}', {
-      cache: 'no-store',
-    });
+    if (playerId) {
+      query.set('player_id', playerId);
+    }
+
+    const response = await fetch(
+      '/api/quiz?' + query.toString(),
+      { cache: 'no-store' }
+    );
+
     const data = await response.json();
 
     if (!response.ok) {
@@ -81,7 +95,11 @@ export default function Home() {
 
     try {
       const result = await action();
-      if (result?.notice) setNotice(result.notice);
+
+      if (result?.notice) {
+        setNotice(result.notice);
+      }
+
       return result;
     } catch (e) {
       setError(e.message || 'Что-то пошло не так');
@@ -92,26 +110,32 @@ export default function Home() {
   }
 
   async function createRoom() {
-    const result = await run(() => api({ action: 'create_room', pin }));
+    const result = await run(() =>
+      api({ action: 'create_room', pin })
+    );
 
     if (result) {
       setRoom(result.room);
       setCode(result.room.room_code);
       setMode('host');
+
       setState(await apiGetState(result.room.room_code));
+
       window.history.replaceState(
         {},
         '',
-        `/?code=${result.room.room_code}`
+        '/?code=' + result.room.room_code
       );
     }
   }
 
   async function joinRoom(role = 'guest') {
+    const roomCode = code.trim().toUpperCase();
+
     const result = await run(() =>
       api({
         action: 'join',
-        room_code: code.trim().toUpperCase(),
+        room_code: roomCode,
         display_name: name.trim(),
         role,
       })
@@ -119,15 +143,15 @@ export default function Home() {
 
     if (result) {
       setPlayer(result.player);
-      setRoom({ room_code: code.trim().toUpperCase() });
+      setRoom({ room_code: roomCode });
       setMode(role === 'nadya' ? 'nadya' : 'guest');
-      setState(
-        await apiGetState(code.trim().toUpperCase(), result.player.id)
-      );
+
+      setState(await apiGetState(roomCode, result.player.id));
+
       window.history.replaceState(
         {},
         '',
-        `/?code=${code.trim().toUpperCase()}`
+        '/?code=' + roomCode
       );
     }
   }
@@ -145,6 +169,7 @@ export default function Home() {
       });
 
       setState(await apiGetState(room.room_code, player.id));
+
       return { notice: 'Ответ принят!' };
     });
   }
@@ -166,21 +191,24 @@ export default function Home() {
 
   const question = state?.question;
   const myAnswer = state?.my_answer;
-  const hasAnswered = player && myAnswer !== null && myAnswer !== undefined;
+
+  const hasAnswered =
+    player && myAnswer !== null && myAnswer !== undefined;
 
   const inviteUrl =
     typeof window !== 'undefined' && room?.room_code
-      ? `${window.location.origin}/?code=${room.room_code}`
+      ? window.location.origin + '/?code=' + room.room_code
       : '';
 
   const qrUrl = inviteUrl
-    ? `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(inviteUrl)}`
+    ? 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' +
+      encodeURIComponent(inviteUrl)
     : '';
 
-  // Гости не должны видеть первый вопрос до начала игры.
+  // До начала игры гости и Надя видят только экран ожидания.
   const waitingForStart =
     (mode === 'guest' || mode === 'nadya') &&
-    state?.room?.status === 'waiting';
+    (!state?.room || state.room.status === 'waiting');
 
   return (
     <main className="shell">
@@ -197,13 +225,18 @@ export default function Home() {
       {error && (
         <div className="alert error">
           {error}
-          <button className="dismiss" onClick={() => setError('')}>
+          <button
+            className="dismiss"
+            onClick={() => setError('')}
+          >
             ×
           </button>
         </div>
       )}
 
-      {notice && <div className="alert success">{notice}</div>}
+      {notice && (
+        <div className="alert success">{notice}</div>
+      )}
 
       {mode === 'home' && (
         <section className="panel hero">
@@ -213,11 +246,19 @@ export default function Home() {
           <p className="muted">
             Выбирайте ответы, сравнивайте их с Надей и собирайте баллы.
           </p>
+
           <div className="actions">
-            <button className="primary" onClick={() => setMode('create')}>
+            <button
+              className="primary"
+              onClick={() => setMode('create')}
+            >
               Создать игру · ведущий
             </button>
-            <button className="secondary" onClick={() => setMode('join')}>
+
+            <button
+              className="secondary"
+              onClick={() => setMode('join')}
+            >
               Войти в игру
             </button>
           </div>
@@ -226,14 +267,20 @@ export default function Home() {
 
       {mode === 'create' && (
         <section className="panel form-panel">
-          <button className="back" onClick={() => setMode('home')}>
+          <button
+            className="back"
+            onClick={() => setMode('home')}
+          >
             ← Назад
           </button>
+
           <p className="eyebrow">ДЛЯ ВЕДУЩЕГО</p>
           <h2>Создать комнату</h2>
+
           <p className="muted">
-            Введи секретный PIN ведущего, который будет настроен в Vercel.
+            Введи секретный PIN ведущего, который настроен в Vercel.
           </p>
+
           <label>
             PIN ведущего
             <input
@@ -244,6 +291,7 @@ export default function Home() {
               autoComplete="current-password"
             />
           </label>
+
           <button
             className="primary full"
             disabled={busy || !pin}
@@ -256,20 +304,28 @@ export default function Home() {
 
       {mode === 'join' && (
         <section className="panel form-panel">
-          <button className="back" onClick={() => setMode('home')}>
+          <button
+            className="back"
+            onClick={() => setMode('home')}
+          >
             ← Назад
           </button>
+
           <p className="eyebrow">ПОДКЛЮЧЕНИЕ</p>
           <h2>Войти в игру</h2>
+
           <label>
             Код комнаты
             <input
               value={code}
-              onChange={(e) => setCode(e.target.value.toUpperCase())}
+              onChange={(e) =>
+                setCode(e.target.value.toUpperCase())
+              }
               placeholder="Например, A7K9Q2"
               maxLength={6}
             />
           </label>
+
           <label>
             Как тебя зовут?
             <input
@@ -279,6 +335,7 @@ export default function Home() {
               maxLength={40}
             />
           </label>
+
           <button
             className="primary full"
             disabled={busy || !code.trim() || !name.trim()}
@@ -286,6 +343,7 @@ export default function Home() {
           >
             {busy ? 'Подключаем…' : 'Войти как участник'}
           </button>
+
           <button
             className="text-button full"
             disabled={busy || !code.trim() || !name.trim()}
@@ -301,7 +359,9 @@ export default function Home() {
           <section className="panel room-head">
             <div>
               <p className="eyebrow">КОМНАТА</p>
-              <h2 className="room-code">{room?.room_code || code}</h2>
+              <h2 className="room-code">
+                {room?.room_code || code}
+              </h2>
               <p className="muted">
                 {state?.players?.length || 0} участников
               </p>
@@ -318,6 +378,7 @@ export default function Home() {
           {mode === 'host' && (
             <section className="panel">
               <p className="eyebrow">ПАНЕЛЬ ВЕДУЩЕГО</p>
+
               <h2>
                 {state?.room?.status === 'finished'
                   ? 'Игра завершена'
@@ -325,6 +386,7 @@ export default function Home() {
                     ? 'Голосование открыто'
                     : 'Голосование закрыто'}
               </h2>
+
               <p className="muted">
                 {state?.room?.voting_open
                   ? 'Гости отвечают. Нажми «Закрыть голосование», когда все готовы.'
@@ -387,8 +449,8 @@ export default function Home() {
               <p className="eyebrow">ТЫ В КОМНАТЕ!</p>
               <h2>Ждём начала игры 🎉</h2>
               <p className="muted">
-                Устраивайся поудобнее. Когда ведущий откроет первый вопрос,
-                он появится здесь автоматически.
+                Устраивайся поудобнее. Когда ведущий откроет первый
+                вопрос, он появится здесь автоматически.
               </p>
               <div className="waiting-indicator">
                 <span>●</span> Ожидаем ведущего
@@ -402,8 +464,12 @@ export default function Home() {
                 <span className="pill">
                   ВОПРОС {question.question_number} / 22
                 </span>
+
                 <span
-                  className={`status ${state?.room?.voting_open ? 'live' : ''}`}
+                  className={
+                    'status ' +
+                    (state?.room?.voting_open ? 'live' : '')
+                  }
                 >
                   {state?.room?.voting_open
                     ? '● Идёт голосование'
@@ -417,9 +483,12 @@ export default function Home() {
                 {question.options.map((option, index) => (
                   <button
                     key={index}
-                    className={`option ${
-                      hasAnswered && myAnswer === index ? 'selected' : ''
-                    }`}
+                    className={
+                      'option ' +
+                      (hasAnswered && myAnswer === index
+                        ? 'selected'
+                        : '')
+                    }
                     disabled={
                       mode === 'host' ||
                       !state?.room?.voting_open ||
@@ -431,7 +500,9 @@ export default function Home() {
                     <span className="option-letter">
                       {String.fromCharCode(65 + index)}
                     </span>
+
                     <span>{option}</span>
+
                     {hasAnswered && myAnswer === index && (
                       <span className="check">✓</span>
                     )}
@@ -466,6 +537,7 @@ export default function Home() {
           {mode === 'host' && (
             <section className="panel">
               <p className="eyebrow">УЧАСТНИКИ</p>
+
               <div className="player-list">
                 {(state?.players || []).map((p) => (
                   <div className="player-row" key={p.id}>
@@ -486,10 +558,13 @@ export default function Home() {
             <section className="panel">
               <p className="eyebrow">ТАБЛИЦА РЕЗУЛЬТАТОВ</p>
               <h2>Кто знает Надю лучше всех?</h2>
+
               <div className="scores">
                 {(state?.scores || []).map((s, i) => (
                   <div className="score-row" key={s.player_id}>
-                    <span className="rank">{i === 0 ? '🏆' : i + 1}</span>
+                    <span className="rank">
+                      {i === 0 ? '🏆' : i + 1}
+                    </span>
                     <strong>{s.display_name}</strong>
                     <span className="points">
                       {s.points}{' '}
@@ -513,4 +588,3 @@ export default function Home() {
     </main>
   );
 }
-```
