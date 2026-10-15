@@ -188,7 +188,7 @@ const round = state?.round;
       <header className="brand">
         <div className="sparkle">✦</div>
         <div>
-          <p className="eyebrow">БОЛЬШОЙ ПРАЗДНИЧНЫЙ КВИЗ</p>
+          <p className="eyebrow">ПРАЗДНИЧНЫЙ КВИЗ</p>
           <h1>Надины <span>40</span></h1>
         </div>
       </header>
@@ -415,7 +415,8 @@ const round = state?.round;
             </section>
           )}
 
-          {question && !waitingForStart && (
+          {question && !waitingForStart &&
+  (mode !== 'host' || state?.room?.voting_open) && (
             <section className="panel question-panel">
               <div className="question-top">
                 <span className="pill">
