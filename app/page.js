@@ -402,7 +402,7 @@ export default function Home() {
             </section>
           )}
 
-          {question && !waitingForStart && (
+          {question && !waitingForStart && mode !== 'host' && (
             <section className="panel question-panel">
               <div className="question-top">
                 <span className="pill">ВОПРОС {question.question_number} / 22</span>
