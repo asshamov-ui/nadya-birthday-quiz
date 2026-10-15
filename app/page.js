@@ -351,6 +351,17 @@ export default function Home() {
           >
             Я Надя — отвечать за именинницу
           </button>
+
+              <button
+  className="text-button full"
+  onClick={() => {
+    setError('');
+    setNotice('');
+    setMode('host-login');
+  }}
+>
+  Я ведущий
+</button>
         </section>
       )}
 
