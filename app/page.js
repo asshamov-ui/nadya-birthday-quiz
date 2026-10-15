@@ -1,6 +1,7 @@
+
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 async function api(payload) {
   const response = await fetch('/api/quiz', {
@@ -11,11 +12,19 @@ async function api(payload) {
   });
 
   const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || 'Не удалось выполнить запрос');
+  return data;
+}
 
-  if (!response.ok) {
-    throw new Error(data.error || 'Не удалось выполнить запрос');
-  }
+async function apiGetState(roomCode, playerId) {
+  const query = new URLSearchParams({ code: roomCode });
+  if (playerId) query.set('player_id', playerId);
 
+  const response = await fetch('/api/quiz?' + query.toString(), {
+    cache: 'no-store',
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'Не удалось обновить комнату');
   return data;
 }
 
@@ -41,52 +50,18 @@ export default function Home() {
     }
   }, []);
 
-  const refresh = useCallback(async () => {
-    const activeCode = room?.room_code || code;
-
-    if (!activeCode) return;
-
-    try {
-      setState(await apiGetState(activeCode, player?.id));
-    } catch (e) {
-      setError(e.message);
-    }
-  }, [room, code, player?.id]);
-
   useEffect(() => {
-    if (!room?.room_code && !code) return;
+    const activeCode = room?.room_code || code;
+    if (!activeCode) return;
 
     const timer = setInterval(async () => {
       try {
-        setState(
-          await apiGetState(room?.room_code || code, player?.id)
-        );
+        setState(await apiGetState(activeCode, player?.id));
       } catch (_) {}
     }, 2200);
 
     return () => clearInterval(timer);
   }, [room?.room_code, code, player?.id]);
-
-  async function apiGetState(roomCode, playerId) {
-    const query = new URLSearchParams({ code: roomCode });
-
-    if (playerId) {
-      query.set('player_id', playerId);
-    }
-
-    const response = await fetch(
-      '/api/quiz?' + query.toString(),
-      { cache: 'no-store' }
-    );
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.error || 'Не удалось обновить комнату');
-    }
-
-    return data;
-  }
 
   async function run(action) {
     setBusy(true);
@@ -94,13 +69,7 @@ export default function Home() {
     setNotice('');
 
     try {
-      const result = await action();
-
-      if (result?.notice) {
-        setNotice(result.notice);
-      }
-
-      return result;
+      return await action();
     } catch (e) {
       setError(e.message || 'Что-то пошло не так');
       return null;
@@ -110,23 +79,36 @@ export default function Home() {
   }
 
   async function createRoom() {
+    const result = await run(() => api({ action: 'create_room', pin }));
+    if (!result) return;
+
+    setRoom(result.room);
+    setCode(result.room.room_code);
+    setPlayer(null);
+    setMode('host');
+    setState(await apiGetState(result.room.room_code));
+    window.history.replaceState({}, '', '/?code=' + result.room.room_code);
+  }
+
+  async function loginHost() {
+    const roomCode = code.trim().toUpperCase();
+
     const result = await run(() =>
-      api({ action: 'create_room', pin })
+      api({
+        action: 'verify_host',
+        room_code: roomCode,
+        pin,
+      })
     );
+    if (!result) return;
 
-    if (result) {
-      setRoom(result.room);
-      setCode(result.room.room_code);
-      setMode('host');
-
-      setState(await apiGetState(result.room.room_code));
-
-      window.history.replaceState(
-        {},
-        '',
-        '/?code=' + result.room.room_code
-      );
-    }
+    setRoom(result.room);
+    setCode(result.room.room_code);
+    setPlayer(null);
+    setState(await apiGetState(result.room.room_code));
+    setMode('host');
+    window.history.replaceState({}, '', '/?code=' + result.room.room_code);
+    setNotice('Вход ведущего выполнен. Продолжаем игру.');
   }
 
   async function joinRoom(role = 'guest') {
@@ -140,26 +122,19 @@ export default function Home() {
         role,
       })
     );
+    if (!result) return;
 
-    if (result) {
-      setPlayer(result.player);
-      setRoom({ room_code: roomCode });
-      setMode(role === 'nadya' ? 'nadya' : 'guest');
-
-      setState(await apiGetState(roomCode, result.player.id));
-
-      window.history.replaceState(
-        {},
-        '',
-        '/?code=' + roomCode
-      );
-    }
+    setPlayer(result.player);
+    setRoom({ room_code: roomCode });
+    setMode(role === 'nadya' ? 'nadya' : 'guest');
+    setState(await apiGetState(roomCode, result.player.id));
+    window.history.replaceState({}, '', '/?code=' + roomCode);
   }
 
   async function sendAnswer(optionIndex) {
     if (!player || !state?.question) return;
 
-    await run(async () => {
+    const result = await run(async () => {
       await api({
         action: 'answer',
         room_code: room.room_code,
@@ -169,9 +144,10 @@ export default function Home() {
       });
 
       setState(await apiGetState(room.room_code, player.id));
-
-      return { notice: 'Ответ принят!' };
+      return true;
     });
+
+    if (result) setNotice('Ответ принят!');
   }
 
   async function hostAction(hostActionName) {
@@ -184,16 +160,12 @@ export default function Home() {
       })
     );
 
-    if (result) {
-      setState(await apiGetState(room.room_code));
-    }
+    if (result) setState(await apiGetState(room.room_code));
   }
 
   const question = state?.question;
   const myAnswer = state?.my_answer;
-
-  const hasAnswered =
-    player && myAnswer !== null && myAnswer !== undefined;
+  const hasAnswered = !!player && myAnswer !== null && myAnswer !== undefined;
 
   const inviteUrl =
     typeof window !== 'undefined' && room?.room_code
@@ -205,7 +177,6 @@ export default function Home() {
       encodeURIComponent(inviteUrl)
     : '';
 
-  // До начала игры гости и Надя видят только экран ожидания.
   const waitingForStart =
     (mode === 'guest' || mode === 'nadya') &&
     (!state?.room || state.room.status === 'waiting');
@@ -216,27 +187,17 @@ export default function Home() {
         <div className="sparkle">✦</div>
         <div>
           <p className="eyebrow">БОЛЬШОЙ ПРАЗДНИЧНЫЙ КВИЗ</p>
-          <h1>
-            Надины <span>40</span>
-          </h1>
+          <h1>Надины <span>40</span></h1>
         </div>
       </header>
 
       {error && (
         <div className="alert error">
           {error}
-          <button
-            className="dismiss"
-            onClick={() => setError('')}
-          >
-            ×
-          </button>
+          <button className="dismiss" onClick={() => setError('')}>×</button>
         </div>
       )}
-
-      {notice && (
-        <div className="alert success">{notice}</div>
-      )}
+      {notice && <div className="alert success">{notice}</div>}
 
       {mode === 'home' && (
         <section className="panel hero">
@@ -246,19 +207,11 @@ export default function Home() {
           <p className="muted">
             Выбирайте ответы, сравнивайте их с Надей и собирайте баллы.
           </p>
-
           <div className="actions">
-            <button
-              className="primary"
-              onClick={() => setMode('create')}
-            >
+            <button className="primary" onClick={() => setMode('create')}>
               Создать игру · ведущий
             </button>
-
-            <button
-              className="secondary"
-              onClick={() => setMode('join')}
-            >
+            <button className="secondary" onClick={() => setMode('join')}>
               Войти в игру
             </button>
           </div>
@@ -267,75 +220,55 @@ export default function Home() {
 
       {mode === 'create' && (
         <section className="panel form-panel">
-          <button
-            className="back"
-            onClick={() => setMode('home')}
-          >
-            ← Назад
-          </button>
-
+          <button className="back" onClick={() => setMode('home')}>← Назад</button>
           <p className="eyebrow">ДЛЯ ВЕДУЩЕГО</p>
           <h2>Создать комнату</h2>
-
-          <p className="muted">
-            Введи секретный PIN ведущего, который настроен в Vercel.
-          </p>
-
+          <p className="muted">Введи секретный PIN ведущего из настроек Vercel.</p>
           <label>
             PIN ведущего
             <input
               value={pin}
-              onChange={(e) => setPin(e.target.value)}
+              onChange={e => setPin(e.target.value)}
               type="password"
               placeholder="Секретный PIN"
               autoComplete="current-password"
             />
           </label>
-
-          <button
-            className="primary full"
-            disabled={busy || !pin}
-            onClick={createRoom}
-          >
+          <button className="primary full" disabled={busy || !pin} onClick={createRoom}>
             {busy ? 'Создаём…' : 'Создать комнату'}
+          </button>
+          <button
+            className="text-button full"
+            onClick={() => { setError(''); setMode('host-login'); }}
+          >
+            Войти в существующую комнату
           </button>
         </section>
       )}
 
       {mode === 'join' && (
         <section className="panel form-panel">
-          <button
-            className="back"
-            onClick={() => setMode('home')}
-          >
-            ← Назад
-          </button>
-
+          <button className="back" onClick={() => setMode('home')}>← Назад</button>
           <p className="eyebrow">ПОДКЛЮЧЕНИЕ</p>
           <h2>Войти в игру</h2>
-
           <label>
             Код комнаты
             <input
               value={code}
-              onChange={(e) =>
-                setCode(e.target.value.toUpperCase())
-              }
-              placeholder="Например, A7K9Q2"
+              onChange={e => setCode(e.target.value.toUpperCase())}
+              placeholder="Например, H7QF7B"
               maxLength={6}
             />
           </label>
-
           <label>
             Как тебя зовут?
             <input
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={e => setName(e.target.value)}
               placeholder="Имя для таблицы результатов"
               maxLength={40}
             />
           </label>
-
           <button
             className="primary full"
             disabled={busy || !code.trim() || !name.trim()}
@@ -343,7 +276,6 @@ export default function Home() {
           >
             {busy ? 'Подключаем…' : 'Войти как участник'}
           </button>
-
           <button
             className="text-button full"
             disabled={busy || !code.trim() || !name.trim()}
@@ -351,17 +283,50 @@ export default function Home() {
           >
             Я Надя — отвечать за именинницу
           </button>
+          <button
+            className="text-button full"
+            onClick={() => { setError(''); setMode('host-login'); }}
+          >
+            Я ведущий
+          </button>
+        </section>
+      )}
 
-              <button
-  className="text-button full"
-  onClick={() => {
-    setError('');
-    setNotice('');
-    setMode('host-login');
-  }}
->
-  Я ведущий
-</button>
+      {mode === 'host-login' && (
+        <section className="panel form-panel">
+          <button className="back" onClick={() => setMode('home')}>← Назад</button>
+          <p className="eyebrow">ДЛЯ ВЕДУЩЕГО</p>
+          <h2>Войти в существующую комнату</h2>
+          <p className="muted">
+            Введи код комнаты и PIN ведущего. Новая комната не создаётся.
+          </p>
+          <label>
+            Код комнаты
+            <input
+              value={code}
+              onChange={e => setCode(e.target.value.toUpperCase())}
+              placeholder="Например, H7QF7B"
+              maxLength={6}
+              autoComplete="off"
+            />
+          </label>
+          <label>
+            PIN ведущего
+            <input
+              value={pin}
+              onChange={e => setPin(e.target.value)}
+              type="password"
+              placeholder="Секретный PIN"
+              autoComplete="current-password"
+            />
+          </label>
+          <button
+            className="primary full"
+            disabled={busy || code.trim().length !== 6 || !pin}
+            onClick={loginHost}
+          >
+            {busy ? 'Проверяем…' : 'Войти как ведущий'}
+          </button>
         </section>
       )}
 
@@ -370,14 +335,9 @@ export default function Home() {
           <section className="panel room-head">
             <div>
               <p className="eyebrow">КОМНАТА</p>
-              <h2 className="room-code">
-                {room?.room_code || code}
-              </h2>
-              <p className="muted">
-                {state?.players?.length || 0} участников
-              </p>
+              <h2 className="room-code">{room?.room_code || code}</h2>
+              <p className="muted">{state?.players?.length || 0} участников</p>
             </div>
-
             {mode === 'host' && (
               <div className="qr">
                 <img src={qrUrl} alt="QR-код для входа в игру" />
@@ -389,7 +349,6 @@ export default function Home() {
           {mode === 'host' && (
             <section className="panel">
               <p className="eyebrow">ПАНЕЛЬ ВЕДУЩЕГО</p>
-
               <h2>
                 {state?.room?.status === 'finished'
                   ? 'Игра завершена'
@@ -397,56 +356,33 @@ export default function Home() {
                     ? 'Голосование открыто'
                     : 'Голосование закрыто'}
               </h2>
-
               <p className="muted">
                 {state?.room?.voting_open
-                  ? 'Гости отвечают. Нажми «Закрыть голосование», когда все готовы.'
+                  ? 'Гости отвечают. Закрой голосование, когда все готовы.'
                   : 'Ответы Нади будут показаны после закрытия голосования.'}
               </p>
-
               <div className="actions wrap">
-                {!state?.room?.voting_open &&
-                  state?.room?.status !== 'finished' && (
-                    <button
-                      className="primary"
-                      disabled={busy}
-                      onClick={() => hostAction('open')}
-                    >
-                      Открыть голосование
-                    </button>
-                  )}
-
+                {!state?.room?.voting_open && state?.room?.status !== 'finished' && (
+                  <button className="primary" disabled={busy} onClick={() => hostAction('open')}>
+                    Открыть голосование
+                  </button>
+                )}
                 {state?.room?.voting_open && (
-                  <button
-                    className="primary"
-                    disabled={busy}
-                    onClick={() => hostAction('close')}
-                  >
+                  <button className="primary" disabled={busy} onClick={() => hostAction('close')}>
                     Закрыть голосование
                   </button>
                 )}
-
-                {!state?.room?.voting_open &&
-                  state?.room?.status !== 'finished' && (
-                    <button
-                      className="secondary"
-                      disabled={
-                        busy ||
-                        !state?.room?.current_question_number ||
-                        state.room.current_question_number >= 22
-                      }
-                      onClick={() => hostAction('next')}
-                    >
-                      Следующий вопрос →
-                    </button>
-                  )}
-
-                {state?.room?.status !== 'finished' && (
+                {!state?.room?.voting_open && state?.room?.status !== 'finished' && (
                   <button
-                    className="danger"
-                    disabled={busy}
-                    onClick={() => hostAction('finish')}
+                    className="secondary"
+                    disabled={busy || !state?.room?.current_question_number || state.room.current_question_number >= 22}
+                    onClick={() => hostAction('next')}
                   >
+                    Следующий вопрос →
+                  </button>
+                )}
+                {state?.room?.status !== 'finished' && (
+                  <button className="danger" disabled={busy} onClick={() => hostAction('finish')}>
                     Завершить игру
                   </button>
                 )}
@@ -460,67 +396,35 @@ export default function Home() {
               <p className="eyebrow">ТЫ В КОМНАТЕ!</p>
               <h2>Ждём начала игры 🎉</h2>
               <p className="muted">
-                Устраивайся поудобнее. Когда ведущий откроет первый
-                вопрос, он появится здесь автоматически.
+                Когда ведущий откроет первый вопрос, он появится здесь автоматически.
               </p>
-              <div className="waiting-indicator">
-                <span>●</span> Ожидаем ведущего
-              </div>
+              <div className="waiting-indicator"><span>●</span> Ожидаем ведущего</div>
             </section>
           )}
 
           {question && !waitingForStart && (
             <section className="panel question-panel">
               <div className="question-top">
-                <span className="pill">
-                  ВОПРОС {question.question_number} / 22
-                </span>
-
-                <span
-                  className={
-                    'status ' +
-                    (state?.room?.voting_open ? 'live' : '')
-                  }
-                >
-                  {state?.room?.voting_open
-                    ? '● Идёт голосование'
-                    : 'Голосование закрыто'}
+                <span className="pill">ВОПРОС {question.question_number} / 22</span>
+                <span className={'status ' + (state?.room?.voting_open ? 'live' : '')}>
+                  {state?.room?.voting_open ? '● Идёт голосование' : 'Голосование закрыто'}
                 </span>
               </div>
-
               <h2>{question.question_text}</h2>
-
               <div className="options">
                 {question.options.map((option, index) => (
                   <button
                     key={index}
-                    className={
-                      'option ' +
-                      (hasAnswered && myAnswer === index
-                        ? 'selected'
-                        : '')
-                    }
-                    disabled={
-                      mode === 'host' ||
-                      !state?.room?.voting_open ||
-                      hasAnswered ||
-                      state?.room?.status === 'finished'
-                    }
+                    className={'option ' + (hasAnswered && myAnswer === index ? 'selected' : '')}
+                    disabled={mode === 'host' || !state?.room?.voting_open || hasAnswered || state?.room?.status === 'finished'}
                     onClick={() => sendAnswer(index)}
                   >
-                    <span className="option-letter">
-                      {String.fromCharCode(65 + index)}
-                    </span>
-
+                    <span className="option-letter">{String.fromCharCode(65 + index)}</span>
                     <span>{option}</span>
-
-                    {hasAnswered && myAnswer === index && (
-                      <span className="check">✓</span>
-                    )}
+                    {hasAnswered && myAnswer === index && <span className="check">✓</span>}
                   </button>
                 ))}
               </div>
-
               {mode !== 'host' && (
                 <p className="muted small">
                   {state?.room?.voting_open
@@ -530,15 +434,13 @@ export default function Home() {
                     : 'Дождись, пока ведущий откроет голосование.'}
                 </p>
               )}
-
               {state?.nadya_answer !== null &&
                 state?.nadya_answer !== undefined &&
                 !state?.room?.voting_open && (
                   <div className="reveal">
                     <span className="eyebrow">ОТВЕТ НАДИ</span>
                     <strong>
-                      {String.fromCharCode(65 + state.nadya_answer)} ·{' '}
-                      {question.options[state.nadya_answer]}
+                      {String.fromCharCode(65 + state.nadya_answer)} · {question.options[state.nadya_answer]}
                     </strong>
                   </div>
                 )}
@@ -548,13 +450,10 @@ export default function Home() {
           {mode === 'host' && (
             <section className="panel">
               <p className="eyebrow">УЧАСТНИКИ</p>
-
               <div className="player-list">
-                {(state?.players || []).map((p) => (
+                {(state?.players || []).map(p => (
                   <div className="player-row" key={p.id}>
-                    <span className="avatar">
-                      {p.display_name.slice(0, 1).toUpperCase()}
-                    </span>
+                    <span className="avatar">{p.display_name.slice(0, 1).toUpperCase()}</span>
                     <span>{p.display_name}</span>
                     <span className="muted small">
                       {p.role === 'nadya' ? 'Именинница' : 'Участник'}
@@ -569,21 +468,14 @@ export default function Home() {
             <section className="panel">
               <p className="eyebrow">ТАБЛИЦА РЕЗУЛЬТАТОВ</p>
               <h2>Кто знает Надю лучше всех?</h2>
-
               <div className="scores">
                 {(state?.scores || []).map((s, i) => (
                   <div className="score-row" key={s.player_id}>
-                    <span className="rank">
-                      {i === 0 ? '🏆' : i + 1}
-                    </span>
+                    <span className="rank">{i === 0 ? '🏆' : i + 1}</span>
                     <strong>{s.display_name}</strong>
                     <span className="points">
                       {s.points}{' '}
-                      {s.points === 1
-                        ? 'балл'
-                        : s.points > 1 && s.points < 5
-                          ? 'балла'
-                          : 'баллов'}
+                      {s.points === 1 ? 'балл' : s.points > 1 && s.points < 5 ? 'балла' : 'баллов'}
                     </span>
                   </div>
                 ))}
@@ -593,9 +485,7 @@ export default function Home() {
         </>
       )}
 
-      <footer>
-        Сделано с любовью для Надиного юбилея <span>✦</span>
-      </footer>
+      <footer>Сделано с любовью для Надиного юбилея <span>✦</span></footer>
     </main>
   );
 }
