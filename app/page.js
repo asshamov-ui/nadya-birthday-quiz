@@ -139,7 +139,7 @@ export default function Home() {
         action: 'answer',
         room_code: room.room_code,
         player_id: player.id,
-        question_number: state.question.question_number,
+        question_number: state.question.play_number,
         selected_option: optionIndex,
       });
 
@@ -166,6 +166,8 @@ export default function Home() {
   const question = state?.question;
   const myAnswer = state?.my_answer;
   const hasAnswered = !!player && myAnswer !== null && myAnswer !== undefined;
+  const playNumber = state?.question?.play_number || state?.room?.current_question_number || 1;
+const round = state?.round;
 
   const inviteUrl =
     typeof window !== 'undefined' && room?.room_code
@@ -357,36 +359,47 @@ export default function Home() {
                     : 'Голосование закрыто'}
               </h2>
               <p className="muted">
-                {state?.room?.voting_open
-                  ? 'Гости отвечают. Закрой голосование, когда все готовы.'
-                  : 'Ответы Нади будут показаны после закрытия голосования.'}
-              </p>
+  {round
+    ? `Раунд ${round.number} из ${round.total}: «${round.title}»`
+    : 'Викторина готова к началу.'}
+  {' · '}Ответили: {state?.answered_count || 0} из{' '}
+  {(state?.players || []).filter(p => p.role !== 'nadya').length} участников.
+</p>
               <div className="actions wrap">
-                {!state?.room?.voting_open && state?.room?.status !== 'finished' && (
-                  <button className="primary" disabled={busy} onClick={() => hostAction('open')}>
-                    Открыть голосование
-                  </button>
-                )}
-                {state?.room?.voting_open && (
-                  <button className="primary" disabled={busy} onClick={() => hostAction('close')}>
-                    Закрыть голосование
-                  </button>
-                )}
-                {!state?.room?.voting_open && state?.room?.status !== 'finished' && (
-                  <button
-                    className="secondary"
-                    disabled={busy || !state?.room?.current_question_number || state.room.current_question_number >= 22}
-                    onClick={() => hostAction('next')}
-                  >
-                    Следующий вопрос →
-                  </button>
-                )}
-                {state?.room?.status !== 'finished' && (
-                  <button className="danger" disabled={busy} onClick={() => hostAction('finish')}>
-                    Завершить игру
-                  </button>
-                )}
-              </div>
+  {state?.room?.status !== 'finished' &&
+    !state?.room?.voting_open && (
+      <button
+        className="primary"
+        disabled={busy}
+        onClick={() => hostAction('open')}
+      >
+        Начать
+      </button>
+    )}
+
+  {state?.room?.status !== 'finished' &&
+    state?.room?.voting_open && (
+      <button
+        className="primary"
+        disabled={busy}
+        onClick={() => hostAction('next')}
+      >
+        {playNumber >= 22
+          ? 'Завершить и показать результаты'
+          : 'Следующий вопрос →'}
+      </button>
+    )}
+
+  {state?.room?.status !== 'finished' && (
+    <button
+      className="danger"
+      disabled={busy}
+      onClick={() => hostAction('finish')}
+    >
+      Завершить игру досрочно
+    </button>
+  )}
+</div>
             </section>
           )}
 
@@ -402,10 +415,14 @@ export default function Home() {
             </section>
           )}
 
-          {question && !waitingForStart && mode !== 'host' && (
+          {question && !waitingForStart && (
             <section className="panel question-panel">
               <div className="question-top">
-                <span className="pill">ВОПРОС {question.question_number} / 22</span>
+                <span className="pill">
+  {round?.is_final
+    ? 'ФИНАЛ · ВОПРОС 22 / 22'
+    : `РАУНД ${round?.number || 1} · ВОПРОС ${playNumber} / 22`}
+</span>
                 <span className={'status ' + (state?.room?.voting_open ? 'live' : '')}>
                   {state?.room?.voting_open ? '● Идёт голосование' : 'Голосование закрыто'}
                 </span>
@@ -416,7 +433,7 @@ export default function Home() {
                   <button
                     key={index}
                     className={'option ' + (hasAnswered && myAnswer === index ? 'selected' : '')}
-                    disabled={mode === 'host' || !state?.room?.voting_open || hasAnswered || state?.room?.status === 'finished'}
+                    disabled={mode === 'host' || !state?.room?.voting_open || state?.room?.status === 'finished'}
                     onClick={() => sendAnswer(index)}
                   >
                     <span className="option-letter">{String.fromCharCode(65 + index)}</span>
