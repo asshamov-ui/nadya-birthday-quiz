@@ -77,6 +77,18 @@ export async function POST(request) {
     if (roomError) throw roomError;
     if (!room) return fail('Комната не найдена. Проверь код.', 404);
 
+    if (body.action === 'verify_host') {
+      if (!process.env.HOST_PIN || body.pin !== process.env.HOST_PIN) {
+        return fail('Неверный PIN ведущего.', 401);
+      }
+
+      if (room.status === 'finished') {
+        return fail('Эта игра уже завершена.');
+      }
+
+      return ok({ room });
+    }
+    
     if (body.action === 'join') {
       const displayName = String(body.display_name || '').trim().slice(0, 40);
       const role = body.role === 'nadya' ? 'nadya' : 'guest';
