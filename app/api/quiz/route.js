@@ -3,9 +3,11 @@ import { createClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic';
 
+const TOTAL_QUESTIONS = 16;
+
 const PLAY_ORDER = [
-  1, 2, 14, 15, 16, 17, 18, 12, 19, 20, 21,
-  3, 5, 6, 7, 8, 11, 4, 9, 10, 13, 22
+  1, 2, 3, 4, 5, 6, 7, 8,
+  9, 10, 11, 12, 13, 14, 15, 16
 ];
 
 function db() {
@@ -148,7 +150,7 @@ export async function GET(request) {
     // Считаем только зафиксированные вопросы.
     const lockedThrough =
       room.status === 'finished'
-        ? 22
+        ? TOTAL_QUESTIONS
         : room.status !== 'playing'
           ? 0
           : room.voting_open
@@ -456,7 +458,7 @@ export async function POST(request) {
           return fail('Сначала нажми «Зафиксировать ответы».');
         }
 
-        if (Number(room.current_question_number) >= 22) {
+        if (Number(room.current_question_number) >= TOTAL_QUESTIONS) {
           const { error } = await supabase
             .from('rooms')
             .update({
