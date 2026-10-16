@@ -3,9 +3,11 @@
 import { useEffect, useState } from 'react';
 
 const POLL_INTERVAL = 2200;
-
-// Через сколько секунд сменяется подсказка на экране ожидания.
 const HINT_INTERVAL = 4200;
+
+// Сколько миллисекунд показывать ответ Нади, прежде чем
+// переключиться на промежуточный рейтинг (после 5 и 10 вопроса).
+const SCORES_DELAY_MS = 8000;
 
 const WAITING_HINTS = [
   'Надя уже накрасилась? 💄',
@@ -37,6 +39,10 @@ export default function ScreenPage() {
   const [state, setState] = useState(null);
   const [error, setError] = useState('');
   const [hintIndex, setHintIndex] = useState(0);
+
+  // Таймер перед показом промежуточного рейтинга.
+  const [scoresReadyAt, setScoresReadyAt] = useState(0);
+  const [now, setNow] = useState(Date.now());
 
   // Читаем код комнаты из URL.
   useEffect(() => {
@@ -97,9 +103,51 @@ export default function ScreenPage() {
     return () => clearTimeout(timer);
   }, [error]);
 
+  // Ставим таймер, когда 5-й или 10-й вопрос зафиксирован.
+  // Всё это время показываем вопрос с ответом Нади, потом — рейтинг.
+  useEffect(() => {
+    const lockedNow =
+      !!state?.answers_locked ||
+      (state?.room?.status === 'playing' && !state?.room?.voting_open);
+
+    const play = state?.question?.play_number;
+
+    if (
+      lockedNow &&
+      (play === 5 || play === 10) &&
+      scoresReadyAt === 0
+    ) {
+      setScoresReadyAt(Date.now() + SCORES_DELAY_MS);
+    }
+
+    // Когда перешли на другой вопрос — сбрасываем таймер.
+    if (play !== 5 && play !== 10) {
+      setScoresReadyAt(0);
+    }
+  }, [
+    state?.question?.play_number,
+    state?.answers_locked,
+    state?.room?.voting_open,
+    state?.room?.status,
+    scoresReadyAt
+  ]);
+
+  // Тикер, чтобы now обновлялся и мы вовремя показали рейтинг.
+  useEffect(() => {
+    if (scoresReadyAt === 0) return;
+
+    const timer = setInterval(() => setNow(Date.now()), 500);
+
+    return () => clearInterval(timer);
+  }, [scoresReadyAt]);
+
   // Если код не задан — показываем инструкцию.
   if (!code) {
-    return <ScreenShell><NoCodeScreen /></ScreenShell>;
+    return (
+      <ScreenShell>
+        <NoCodeScreen />
+      </ScreenShell>
+    );
   }
 
   if (error && !state) {
@@ -129,7 +177,6 @@ export default function ScreenPage() {
 
   const room = state.room;
 
-  // Комната не найдена.
   if (!room) {
     return (
       <ScreenShell>
@@ -159,18 +206,29 @@ export default function ScreenPage() {
       ? null
       : Number(rawCorrect);
 
-  // Рейтинг показываем после 5 и 10 вопросов, а также в конце.
+  // Промежуточный рейтинг показываем только после задержки.
+  const isScoresQuestion = playNumber === 5 || playNumber === 10;
+
+  const scoresDelayPassed =
+    scoresReadyAt !== 0 && now >= scoresReadyAt;
+
   const showIntermediateScores =
     !isFinished &&
     answersLocked &&
-    (playNumber === 5 || playNumber === 10);
+    isScoresQuestion &&
+    scoresDelayPassed;
+
+  // Оставшееся время до показа рейтинга — для индикатора.
+  const secondsLeft =
+    scoresReadyAt !== 0 && !scoresDelayPassed
+      ? Math.max(0, Math.ceil((scoresReadyAt - now) / 1000))
+      : 0;
 
   const scores = state.scores || [];
   const top3 = scores.slice(0, 3);
 
   return (
     <ScreenShell>
-      {/* ОЖИДАНИЕ */}
       {isWaiting && (
         <WaitingScreen
           code={code}
@@ -179,12 +237,10 @@ export default function ScreenPage() {
         />
       )}
 
-      {/* ФИНАЛ */}
       {isFinished && (
         <FinalScreen top3={top3} scores={scores} />
       )}
 
-      {/* ПРОМЕЖУТОЧНЫЙ РЕЙТИНГ (после 5 и 10) */}
       {showIntermediateScores && (
         <IntermediateScoresScreen
           playNumber={playNumber}
@@ -192,7 +248,6 @@ export default function ScreenPage() {
         />
       )}
 
-      {/* ВОПРОС */}
       {!isWaiting && !isFinished && !showIntermediateScores && question && (
         <QuestionScreen
           playNumber={playNumber}
@@ -200,6 +255,8 @@ export default function ScreenPage() {
           question={question}
           votingOpen={votingOpen}
           correctAnswer={correctAnswer}
+          secondsLeft={secondsLeft}
+          isScoresQuestion={isScoresQuestion}
         />
       )}
     </ScreenShell>
@@ -257,7 +314,6 @@ function ScreenShell({ children }) {
           color: #786f66;
         }
 
-        /* ОБЩИЕ ЗАГОЛОВКИ И ЭЛЕМЕНТЫ */
         .eyebrow {
           margin: 0 0 0.6rem;
           color: #9b713b;
@@ -478,6 +534,13 @@ function ScreenShell({ children }) {
           animation: pulse 1.4s ease-in-out infinite;
         }
 
+        .scores-countdown {
+          margin-top: 1.5rem;
+          color: #895719;
+          font-size: clamp(0.95rem, 1.3vw, 1.2rem);
+          font-weight: 700;
+        }
+
         /* РЕЙТИНГ */
         .scores-title {
           margin: 0 0 0.5rem;
@@ -688,7 +751,6 @@ function ScreenShell({ children }) {
           font-weight: 800;
         }
 
-        /* КОНФЕТТИ */
         .confetti {
           position: absolute;
           inset: 0;
@@ -705,7 +767,6 @@ function ScreenShell({ children }) {
           left: calc(var(--i) * 5.2%);
         }
 
-        /* KEYFRAMES */
         @keyframes pulse {
           0%, 100% { opacity: 0.4; }
           50% { opacity: 1; }
@@ -737,7 +798,6 @@ function ScreenShell({ children }) {
           to { opacity: 1; transform: translateY(0) scale(1); }
         }
 
-        /* АДАПТАЦИЯ ПОД УЗКИЕ ЭКРАНЫ */
         @media (max-width: 900px) {
           .waiting {
             grid-template-columns: 1fr;
@@ -861,7 +921,9 @@ function QuestionScreen({
   totalQuestions,
   question,
   votingOpen,
-  correctAnswer
+  correctAnswer,
+  secondsLeft,
+  isScoresQuestion
 }) {
   const locked = correctAnswer !== null && correctAnswer !== undefined;
 
@@ -913,6 +975,12 @@ function QuestionScreen({
         <p className="voting-pulse">
           <span>●</span>
           Ведущий ждёт, пока все ответят…
+        </p>
+      )}
+
+      {locked && isScoresQuestion && secondsLeft > 0 && (
+        <p className="scores-countdown">
+          Рейтинг после {playNumber}-го вопроса — через {secondsLeft}…
         </p>
       )}
     </div>
