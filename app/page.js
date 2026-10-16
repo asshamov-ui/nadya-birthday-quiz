@@ -544,7 +544,7 @@ export default function Home() {
                   ? 'Игра завершена 🎉'
                   : state?.room?.status === 'waiting'
                     ? 'Готовы начинать?'
-                    : `Вопрос ${playNumber} из 22 · ${
+                    : `Вопрос ${playNumber} из 16 · ${
                         state?.room?.voting_open
                           ? 'голосование открыто'
                           : 'ответы зафиксированы'
@@ -597,7 +597,7 @@ export default function Home() {
                       disabled={busy}
                       onClick={() => hostAction('next')}
                     >
-                      {playNumber >= 22
+                      {playNumber >= 16
                         ? 'Завершить и показать результаты'
                         : 'Следующий вопрос →'}
                     </button>
@@ -643,7 +643,7 @@ export default function Home() {
               <section className="panel question-panel">
                 <div className="question-top">
                   <span className="pill">
-                    ВОПРОС {playNumber} / 22
+                    ВОПРОС {playNumber} / 16
                   </span>
 
                   <span
