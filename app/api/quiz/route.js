@@ -361,9 +361,8 @@ export async function POST(request) {
         return fail('Участник не найден. Зайди в комнату заново.', 404);
       }
 
-      if (player.role === 'nadya') {
-        return fail('Надя не может отвечать от имени участника.');
-      }
+      // Надя тоже отправляет ответ через этот обработчик.
+      // Её роль используется как источник правильного ответа при подсчёте баллов.
 
       if (!room.voting_open || room.status !== 'playing') {
         return fail(
