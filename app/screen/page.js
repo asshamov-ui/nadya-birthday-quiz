@@ -9,13 +9,42 @@ const HINT_INTERVAL = 4200;
 // переключиться на промежуточный рейтинг (после 5 и 10 вопроса).
 const SCORES_DELAY_MS = 8000;
 
+// Сколько мест показываем в рейтинге.
+const TOP_PLACES = 5;
+
 const WAITING_HINTS = [
   'Надя уже накрасилась? 💄',
   'Гости подтягиваются… 🚶‍♀️🚶',
   'Ставки сделаны? Скоро начнём 🎉',
   'Кто знает Надю лучше всех? Сейчас узнаем 🤔',
   'Ведущий что-то замышляет… 😏',
-  'Ещё пара секунд — и начнём ✨'
+  'Ещё пара секунд — и начнём ✨',
+  'Надя волнуется. Или притворяется 😅',
+  'Проверьте, что телефон заряжен 🔋',
+  'Сейчас будет очень интересно 🔥',
+  'А вы точно знаете Надю? Сейчас проверим 🧐',
+  'Отвечать честно, не подглядывать! 🙈',
+  'Кто первый угадает — тому слава 🏆',
+  'Этот квиз одобрен самой именинницей 👑',
+  'Готовьтесь удивляться 🤯',
+  'Один вопрос — один шанс 🎯',
+  'Не переживайте, будет весело 🎈',
+  'Надя уже готовит правильные ответы ✍️',
+  'Если не знаете — угадывайте 😄',
+  'Сегодня всё по-честному 🍀',
+  'Уважаемые гости, пристегнитесь 🚀',
+  'На счёт три… ещё не сейчас 😜',
+  'Кто-то уже придумал свою стратегию 🧠',
+  'Осталось совсем чуть-чуть ⏳',
+  'Именинница, ваша партия! 👸',
+  'Проверяем, кто тут настоящий друг Нади 💛',
+  'Начинаем, как только все усядутся 🪑',
+  'В воздухе витает интрига 🎭',
+  'Один из вас станет легендой 🌟',
+  'Ведущий репетирует драматическую паузу 🎬',
+  'Держите напитки — сейчас начнётся 🥂',
+  'Надя уже знает ответы. А вы? 😎',
+  'Скоро. Очень скоро. Даже быстрее 🕐'
 ];
 
 async function apiGetState(roomCode) {
@@ -32,6 +61,46 @@ async function apiGetState(roomCode) {
   }
 
   return data;
+}
+
+/**
+ * Группирует игроков по очкам и возвращает список «мест».
+ * Если у нескольких игроков одинаковые очки — они делят место.
+ *
+ * Формат: [{ rank: 1, points: 5, players: [...] }, { rank: 2, points: 3, players: [...] }]
+ * Возвращает максимум TOP_PLACES мест.
+ */
+function groupByRank(scores) {
+  if (!Array.isArray(scores) || scores.length === 0) return [];
+
+  const sorted = [...scores].sort(
+    (a, b) =>
+      b.points - a.points ||
+      a.display_name.localeCompare(b.display_name, 'ru')
+  );
+
+  const groups = [];
+  let currentRank = 0;
+  let lastPoints = null;
+  let placeIndex = 0;
+
+  for (const s of sorted) {
+    if (lastPoints === null || s.points !== lastPoints) {
+      placeIndex += 1; // следующее место
+      currentRank = placeIndex;
+      lastPoints = s.points;
+
+      groups.push({
+        rank: currentRank,
+        points: s.points,
+        players: [s]
+      });
+    } else {
+      groups[groups.length - 1].players.push(s);
+    }
+  }
+
+  return groups.slice(0, TOP_PLACES);
 }
 
 export default function ScreenPage() {
@@ -104,7 +173,6 @@ export default function ScreenPage() {
   }, [error]);
 
   // Ставим таймер, когда 5-й или 10-й вопрос зафиксирован.
-  // Всё это время показываем вопрос с ответом Нади, потом — рейтинг.
   useEffect(() => {
     const lockedNow =
       !!state?.answers_locked ||
@@ -120,7 +188,6 @@ export default function ScreenPage() {
       setScoresReadyAt(Date.now() + SCORES_DELAY_MS);
     }
 
-    // Когда перешли на другой вопрос — сбрасываем таймер.
     if (play !== 5 && play !== 10) {
       setScoresReadyAt(0);
     }
@@ -132,7 +199,7 @@ export default function ScreenPage() {
     scoresReadyAt
   ]);
 
-  // Тикер, чтобы now обновлялся и мы вовремя показали рейтинг.
+  // Тикер для now.
   useEffect(() => {
     if (scoresReadyAt === 0) return;
 
@@ -141,7 +208,6 @@ export default function ScreenPage() {
     return () => clearInterval(timer);
   }, [scoresReadyAt]);
 
-  // Если код не задан — показываем инструкцию.
   if (!code) {
     return (
       <ScreenShell>
@@ -206,7 +272,6 @@ export default function ScreenPage() {
       ? null
       : Number(rawCorrect);
 
-  // Промежуточный рейтинг показываем только после задержки.
   const isScoresQuestion = playNumber === 5 || playNumber === 10;
 
   const scoresDelayPassed =
@@ -218,14 +283,13 @@ export default function ScreenPage() {
     isScoresQuestion &&
     scoresDelayPassed;
 
-  // Оставшееся время до показа рейтинга — для индикатора.
   const secondsLeft =
     scoresReadyAt !== 0 && !scoresDelayPassed
       ? Math.max(0, Math.ceil((scoresReadyAt - now) / 1000))
       : 0;
 
   const scores = state.scores || [];
-  const top3 = scores.slice(0, 3);
+  const ranked = groupByRank(scores);
 
   return (
     <ScreenShell>
@@ -238,13 +302,13 @@ export default function ScreenPage() {
       )}
 
       {isFinished && (
-        <FinalScreen top3={top3} scores={scores} />
+        <FinalScreen ranked={ranked} scores={scores} />
       )}
 
       {showIntermediateScores && (
         <IntermediateScoresScreen
           playNumber={playNumber}
-          top3={top3}
+          ranked={ranked}
         />
       )}
 
@@ -368,6 +432,7 @@ function ScreenShell({ children }) {
           font-size: clamp(1.1rem, 2vw, 1.6rem);
           font-weight: 700;
           transition: opacity 0.4s ease;
+          min-height: 4rem;
         }
 
         .waiting-right {
@@ -557,7 +622,7 @@ function ScreenShell({ children }) {
         .scores-list {
           display: grid;
           gap: 1.2rem;
-          max-width: 720px;
+          max-width: 960px;
           margin: 0 auto;
         }
 
@@ -580,33 +645,53 @@ function ScreenShell({ children }) {
         .score-rank {
           font-size: clamp(1.6rem, 2.4vw, 2.2rem);
           font-weight: 800;
-          width: 2.5rem;
+          width: 2.8rem;
           text-align: center;
+          flex: 0 0 auto;
         }
 
-        .score-name {
+        .score-names {
+          flex: 1;
           font-weight: 800;
           color: #2c1f12;
+          text-align: left;
+          overflow-wrap: anywhere;
+        }
+
+        .score-names .sep {
+          color: #9b713b;
+          font-weight: 600;
+          margin: 0 0.4rem;
         }
 
         .score-points {
-          margin-left: auto;
           color: #8a5c22;
           font-weight: 800;
+          white-space: nowrap;
         }
 
         /* ФИНАЛ */
         .final-wrap {
           position: relative;
           width: min(92vw, 1400px);
+          max-height: 92vh;
+          overflow: auto;
           padding: 4vh 5vw;
           border: 3px solid #f4c95d;
           border-radius: 40px;
           background: #ffffff;
           box-shadow: 0 30px 80px rgb(83 57 23 / 12%);
           text-align: center;
-          overflow: hidden;
           animation: finalAppear 0.8s ease-out both;
+        }
+
+        .final-wrap::-webkit-scrollbar {
+          width: 8px;
+        }
+
+        .final-wrap::-webkit-scrollbar-thumb {
+          background: #ead8bb;
+          border-radius: 8px;
         }
 
         .final-eyebrow {
@@ -624,8 +709,8 @@ function ScreenShell({ children }) {
         }
 
         .final-hero {
-          margin: 0 0 2.5rem;
-          font-size: clamp(2rem, 4.4vw, 4rem);
+          margin: 0 0 1rem;
+          font-size: clamp(1.6rem, 3.4vw, 3rem);
           line-height: 1.1;
           color: #3b2a17;
         }
@@ -635,16 +720,16 @@ function ScreenShell({ children }) {
         }
 
         .final-cake {
-          font-size: clamp(4rem, 10vw, 9rem);
+          font-size: clamp(3rem, 7vw, 6rem);
           line-height: 1;
-          margin: 0.5rem 0 1.5rem;
+          margin: 0.5rem 0 1rem;
           display: inline-block;
           animation: cakeWobble 2.4s ease-in-out infinite;
         }
 
         .final-balloons {
-          margin-top: 2rem;
-          font-size: clamp(1.6rem, 3vw, 3rem);
+          margin-top: 1rem;
+          font-size: clamp(1.4rem, 2.6vw, 2.4rem);
           letter-spacing: 0.6rem;
         }
 
@@ -653,64 +738,64 @@ function ScreenShell({ children }) {
           animation: floatUp 3.4s ease-in-out infinite;
         }
 
-        .final-balloons span:nth-child(2) {
-          animation-delay: -0.6s;
-        }
+        .final-balloons span:nth-child(2) { animation-delay: -0.6s; }
+        .final-balloons span:nth-child(3) { animation-delay: -1.2s; }
+        .final-balloons span:nth-child(4) { animation-delay: -1.8s; }
 
-        .final-balloons span:nth-child(3) {
-          animation-delay: -1.2s;
-        }
-
-        .final-balloons span:nth-child(4) {
-          animation-delay: -1.8s;
-        }
-
-        .final-top3 {
+        .final-top {
+          margin: 2.5rem auto 0;
+          max-width: 960px;
           display: grid;
-          grid-template-columns: 1fr 1fr 1fr;
-          gap: 1.5rem;
-          margin: 3rem auto 0;
-          max-width: 1000px;
+          gap: 1rem;
         }
 
         .podium-item {
-          padding: 1.6rem 1.2rem;
-          border-radius: 22px;
+          display: flex;
+          align-items: center;
+          gap: 1.4rem;
+          padding: 1.2rem 1.6rem;
+          border-radius: 20px;
           background: #fffdf7;
           border: 2px solid #eee4d5;
-          text-align: center;
+          text-align: left;
         }
 
         .podium-item.gold {
           border-color: #f4c95d;
           background: #fff3c4;
-          transform: translateY(-10px);
         }
 
         .podium-medal {
-          font-size: clamp(2rem, 3vw, 3rem);
-          display: block;
-          margin-bottom: 0.6rem;
+          font-size: clamp(1.6rem, 2.6vw, 2.4rem);
+          flex: 0 0 auto;
         }
 
-        .podium-name {
+        .podium-names {
+          flex: 1;
           font-weight: 800;
           font-size: clamp(1rem, 1.6vw, 1.4rem);
           color: #2c1f12;
-          margin-bottom: 0.4rem;
           overflow-wrap: anywhere;
+        }
+
+        .podium-names .sep {
+          color: #9b713b;
+          font-weight: 600;
+          margin: 0 0.4rem;
         }
 
         .podium-points {
           color: #8a5c22;
           font-size: clamp(0.9rem, 1.3vw, 1.15rem);
+          font-weight: 800;
+          white-space: nowrap;
         }
 
         .final-all {
-          margin: 3.5rem auto 0;
+          margin: 3rem auto 0;
           max-width: 720px;
           display: grid;
-          gap: 0.8rem;
+          gap: 0.7rem;
           text-align: left;
         }
 
@@ -727,7 +812,7 @@ function ScreenShell({ children }) {
           display: flex;
           align-items: center;
           gap: 1rem;
-          padding: 0.8rem 1.2rem;
+          padding: 0.7rem 1.1rem;
           border-radius: 14px;
           background: #fffdf9;
           border: 1px solid #eee4d5;
@@ -749,6 +834,7 @@ function ScreenShell({ children }) {
           margin-left: auto;
           color: #8a5c22;
           font-weight: 800;
+          white-space: nowrap;
         }
 
         .confetti {
@@ -812,12 +898,8 @@ function ScreenShell({ children }) {
             grid-template-columns: 1fr;
           }
 
-          .final-top3 {
-            grid-template-columns: 1fr;
-          }
-
-          .podium-item.gold {
-            transform: none;
+          .podium-item {
+            flex-wrap: wrap;
           }
         }
 
@@ -989,32 +1071,43 @@ function QuestionScreen({
 
 /* ---------------- ЭКРАН: ПРОМЕЖУТОЧНЫЙ РЕЙТИНГ ---------------- */
 
-function IntermediateScoresScreen({ playNumber, top3 }) {
+function IntermediateScoresScreen({ playNumber, ranked }) {
+  const medals = ['🥇', '🥈', '🥉', '4', '5'];
+
   return (
     <div className="card">
       <p className="eyebrow">ПОСЛЕ {playNumber} ВОПРОСОВ</p>
       <h1 className="scores-title">Кто впереди?</h1>
-      <p className="scores-sub">Топ-3 на данный момент</p>
+      <p className="scores-sub">Топ-5 на данный момент</p>
 
       <div className="scores-list">
-        {top3.length === 0 && (
+        {ranked.length === 0 && (
           <p className="muted">Пока никто не набрал баллов.</p>
         )}
 
-        {top3.map((s, i) => (
+        {ranked.map((group) => (
           <div
-            key={s.player_id}
-            className={'score-item ' + (i === 0 ? 'first' : '')}
+            key={group.rank}
+            className={'score-item ' + (group.rank === 1 ? 'first' : '')}
           >
             <span className="score-rank">
-              {i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉'}
+              {medals[group.rank - 1] || group.rank}
             </span>
-            <span className="score-name">{s.display_name}</span>
+
+            <span className="score-names">
+              {group.players.map((p, i) => (
+                <span key={p.player_id}>
+                  {i > 0 && <span className="sep">·</span>}
+                  {p.display_name}
+                </span>
+              ))}
+            </span>
+
             <span className="score-points">
-              {s.points}{' '}
-              {s.points === 1
+              {group.points}{' '}
+              {group.points === 1
                 ? 'балл'
-                : s.points > 1 && s.points < 5
+                : group.points > 1 && group.points < 5
                   ? 'балла'
                   : 'баллов'}
             </span>
@@ -1027,7 +1120,9 @@ function IntermediateScoresScreen({ playNumber, top3 }) {
 
 /* ---------------- ЭКРАН: ФИНАЛ ---------------- */
 
-function FinalScreen({ top3, scores }) {
+function FinalScreen({ ranked, scores }) {
+  const medals = ['🥇', '🥈', '🥉', '4', '5'];
+
   return (
     <div className="final-wrap">
       <div className="confetti" aria-hidden="true">
@@ -1054,31 +1149,40 @@ function FinalScreen({ top3, scores }) {
         <span>🎈</span><span>🎈</span><span>🎈</span><span>🎈</span>
       </div>
 
-      {top3.length > 0 && (
-        <div className="final-top3">
-          {top3.map((s, i) => (
+      {ranked.length > 0 && (
+        <div className="final-top">
+          {ranked.map((group) => (
             <div
-              key={s.player_id}
-              className={'podium-item ' + (i === 0 ? 'gold' : '')}
+              key={group.rank}
+              className={'podium-item ' + (group.rank === 1 ? 'gold' : '')}
             >
               <span className="podium-medal">
-                {i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉'}
+                {medals[group.rank - 1] || group.rank}
               </span>
-              <div className="podium-name">{s.display_name}</div>
-              <div className="podium-points">
-                {s.points}{' '}
-                {s.points === 1
+
+              <span className="podium-names">
+                {group.players.map((p, i) => (
+                  <span key={p.player_id}>
+                    {i > 0 && <span className="sep">·</span>}
+                    {p.display_name}
+                  </span>
+                ))}
+              </span>
+
+              <span className="podium-points">
+                {group.points}{' '}
+                {group.points === 1
                   ? 'балл'
-                  : s.points > 1 && s.points < 5
+                  : group.points > 1 && group.points < 5
                     ? 'балла'
                     : 'баллов'}
-              </div>
+              </span>
             </div>
           ))}
         </div>
       )}
 
-      {scores.length > 3 && (
+      {scores.length > 5 && (
         <div className="final-all">
           <p className="final-all-title">ВСЕ УЧАСТНИКИ</p>
 
