@@ -102,6 +102,9 @@ export async function GET(request) {
       (a) => a.player_id === nadya?.id
     );
 
+    // Ответила ли Надя на текущий вопрос.
+    const nadyaAnswered = !!nadyaRow;
+
     const locked =
       room.status === 'playing' && !room.voting_open;
 
@@ -211,6 +214,7 @@ export async function GET(request) {
         : null,
       players,
       nadya_answer: nadyaAnswer,
+      nadya_answered: nadyaAnswered,
       my_answer: myAnswer,
       answered_count: answeredCount,
       answers_locked: locked || room.status === 'finished',
@@ -363,9 +367,6 @@ export async function POST(request) {
         return fail('Участник не найден. Зайди в комнату заново.', 404);
       }
 
-      // Надя тоже отправляет ответ через этот обработчик.
-      // Её роль используется как источник правильного ответа при подсчёте баллов.
-
       if (!room.voting_open || room.status !== 'playing') {
         return fail(
           'Ответы уже зафиксированы или голосование ещё не открыто.'
@@ -441,6 +442,49 @@ export async function POST(request) {
       } else if (body.host_action === 'lock') {
         if (room.status !== 'playing' || !room.voting_open) {
           return fail('Сейчас нечего фиксировать.');
+        }
+
+        // Проверяем, что Надя уже ответила на текущий вопрос.
+        const step = Number(room.current_question_number);
+        const actualNumber = PLAY_ORDER[step - 1];
+
+        if (!actualNumber) {
+          return fail('Некорректный номер вопроса.');
+        }
+
+        const { data: questionRow, error: qErr } = await supabase
+          .from('questions')
+          .select('id')
+          .eq('question_number', actualNumber)
+          .single();
+
+        if (qErr) throw qErr;
+
+        const { data: nadyaPlayer, error: nadyaErr } = await supabase
+          .from('players')
+          .select('id')
+          .eq('room_id', room.id)
+          .eq('role', 'nadya')
+          .maybeSingle();
+
+        if (nadyaErr) throw nadyaErr;
+
+        if (!nadyaPlayer) {
+          return fail('К комнате ещё не подключилась Надя.');
+        }
+
+        const { data: nadyaAnswerRow, error: answerErr } =
+          await supabase
+            .from('answers')
+            .select('id')
+            .eq('question_id', questionRow.id)
+            .eq('player_id', nadyaPlayer.id)
+            .maybeSingle();
+
+        if (answerErr) throw answerErr;
+
+        if (!nadyaAnswerRow) {
+          return fail('Надя ещё не ответила. Дождись её ответа.');
         }
 
         const { error } = await supabase
