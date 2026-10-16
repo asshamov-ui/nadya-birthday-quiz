@@ -108,9 +108,12 @@ export async function GET(request) {
       a => a.player_id === nadya?.id
     );
 
-    const nadyaAnswer = !room.voting_open
-      ? (nadyaRow?.selected_option ?? null)
-      : null;
+    const answersLocked =
+  room.status === 'playing' && !room.voting_open;
+
+const nadyaAnswer = answersLocked || room.status === 'finished'
+  ? (nadyaRow?.selected_option ?? null)
+  : null;
 
     const myRow =
       playerId && question
@@ -143,7 +146,18 @@ export async function GET(request) {
           answer.selected_option;
       }
     }
+const playStepByQuestion = Object.fromEntries(
+  PLAY_ORDER.map((questionNumber, index) => [questionNumber, index + 1])
+);
 
+const lockedThrough =
+  room.status === 'finished'
+    ? 22
+    : room.status !== 'playing'
+      ? 0
+      : room.voting_open
+        ? playStep - 1
+        : playStep;
     const scores = players
       .filter(p => p.role !== 'nadya')
       .map(p => {
@@ -155,14 +169,16 @@ export async function GET(request) {
 
         for (const answer of playerAnswers) {
           const questionNumber = qNumById[answer.question_id];
+const answeredStep = playStepByQuestion[questionNumber];
 
-          if (
-            nadyaByQuestion[questionNumber] !== undefined &&
-            nadyaByQuestion[questionNumber] === answer.selected_option
-          ) {
-            points++;
-          }
-        }
+if (
+  answeredStep !== undefined &&
+  answeredStep <= lockedThrough &&
+  nadyaByQuestion[questionNumber] !== undefined &&
+  nadyaByQuestion[questionNumber] === answer.selected_option
+) {
+  points++;
+}
 
         return {
           player_id: p.id,
@@ -182,10 +198,11 @@ export async function GET(request) {
       )
     ).length;
 
-    const round = roundForStep(playStep);
+    
 
     return ok({
       room,
+      answers_locked: answersLocked,
       question: question
         ? {
             id: question.id,
@@ -199,16 +216,9 @@ export async function GET(request) {
       nadya_answer: nadyaAnswer,
       my_answer: myAnswer,
       answered_count: answeredCount,
-      round: {
-        title: round.title,
-        number: ROUND_INFO.indexOf(round) + 1,
-        total: ROUND_INFO.length,
-        start: round.start,
-        end: round.end,
-        is_final: playStep === 22
-      },
-      show_scores: room.status === 'finished',
-      scores: room.status === 'finished' ? scores : []
+      
+      show_scores: room.status === 'playing' || room.status === 'finished',
+scores,
     });
   } catch (e) {
     return fail(e.message || 'Ошибка сервера.', 500);
@@ -404,54 +414,66 @@ export async function POST(request) {
       }
 
       if (body.host_action === 'open') {
-        if (room.status === 'finished') {
-          return fail('Игра уже завершена.');
-        }
+  if (room.status !== 'waiting') {
+    return fail('Игра уже началась.');
+  }
 
-        const { error } = await supabase
-          .from('rooms')
-          .update({
-            status: 'playing',
-            voting_open: true
-          })
-          .eq('id', room.id);
+  const { error } = await supabase
+    .from('rooms')
+    .update({
+      status: 'playing',
+      voting_open: true
+    })
+    .eq('id', room.id);
 
-        if (error) throw error;
-      } else if (body.host_action === 'next') {
-        if (room.status === 'finished') {
-          return fail('Игра уже завершена.');
-        }
+  if (error) throw error;
 
-        if (!room.voting_open) {
-          return fail('Сначала нажми «Начать».');
-        }
+} else if (body.host_action === 'lock') {
+  if (room.status !== 'playing' || !room.voting_open) {
+    return fail('Сейчас нечего фиксировать.');
+  }
 
-        if (room.current_question_number >= 22) {
-          const { error } = await supabase
-            .from('rooms')
-            .update({
-              status: 'finished',
-              voting_open: false
-            })
-            .eq('id', room.id);
+  const { error } = await supabase
+    .from('rooms')
+    .update({ voting_open: false })
+    .eq('id', room.id);
 
-          if (error) throw error;
-        } else {
-          // Закрываем текущий вопрос и открываем следующий.
-          // Ответы предыдущего вопроса больше нельзя изменить.
-          const { error } = await supabase
-            .from('rooms')
-            .update({
-              current_question_number:
-                room.current_question_number + 1,
-              voting_open: true,
-              status: 'playing'
-            })
-            .eq('id', room.id);
+  if (error) throw error;
 
-          if (error) throw error;
-        }
-      } else if (body.host_action === 'finish') {
+} else if (body.host_action === 'next') {
+  if (room.status !== 'playing') {
+    return fail('Игра ещё не началась.');
+  }
+
+  if (room.voting_open) {
+    return fail('Сначала нажми «Зафиксировать».');
+  }
+
+  if (room.current_question_number >= 22) {
+    const { error } = await supabase
+      .from('rooms')
+      .update({
+        status: 'finished',
+        voting_open: false
+      })
+      .eq('id', room.id);
+
+    if (error) throw error;
+
+  } else {
+    const { error } = await supabase
+      .from('rooms')
+      .update({
+        current_question_number: room.current_question_number + 1,
+        voting_open: true,
+        status: 'playing'
+      })
+      .eq('id', room.id);
+
+    if (error) throw error;
+  }
+
+} else if (body.host_action === 'finish') {
         const { error } = await supabase
           .from('rooms')
           .update({
