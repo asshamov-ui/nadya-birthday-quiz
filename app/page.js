@@ -280,6 +280,13 @@ export default function Home() {
         </div>
       </header>
 
+      {(mode === 'guest' || mode === 'nadya') && player && (
+        <div className="player-name-bar" aria-label="Имя участника">
+          <span>Вы вошли как</span>
+          <strong>{player.display_name || name || 'Участник'}</strong>
+        </div>
+      )}
+
       {error && (
         <div className="alert error">
           {error}
@@ -887,6 +894,30 @@ export default function Home() {
 
         .brand h1 span {
           color: #b77925;
+        }
+
+        .player-name-bar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          margin: -8px 0 20px;
+          padding: 12px 16px;
+          border: 1px solid #ead8bb;
+          border-radius: 14px;
+          background: #fffaf1;
+          color: #78572d;
+        }
+
+        .player-name-bar span {
+          font-size: 13px;
+        }
+
+        .player-name-bar strong {
+          color: #382b1b;
+          font-size: 16px;
+          overflow-wrap: anywhere;
+          text-align: right;
         }
 
         .eyebrow {
