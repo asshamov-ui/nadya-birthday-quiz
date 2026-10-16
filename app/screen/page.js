@@ -66,9 +66,6 @@ async function apiGetState(roomCode) {
 /**
  * Группирует игроков по очкам и возвращает список «мест».
  * Если у нескольких игроков одинаковые очки — они делят место.
- *
- * Формат: [{ rank: 1, points: 5, players: [...] }, { rank: 2, points: 3, players: [...] }]
- * Возвращает максимум TOP_PLACES мест.
  */
 function groupByRank(scores) {
   if (!Array.isArray(scores) || scores.length === 0) return [];
@@ -80,18 +77,16 @@ function groupByRank(scores) {
   );
 
   const groups = [];
-  let currentRank = 0;
-  let lastPoints = null;
   let placeIndex = 0;
+  let lastPoints = null;
 
   for (const s of sorted) {
     if (lastPoints === null || s.points !== lastPoints) {
-      placeIndex += 1; // следующее место
-      currentRank = placeIndex;
+      placeIndex += 1;
       lastPoints = s.points;
 
       groups.push({
-        rank: currentRank,
+        rank: placeIndex,
         points: s.points,
         players: [s]
       });
@@ -109,11 +104,9 @@ export default function ScreenPage() {
   const [error, setError] = useState('');
   const [hintIndex, setHintIndex] = useState(0);
 
-  // Таймер перед показом промежуточного рейтинга.
   const [scoresReadyAt, setScoresReadyAt] = useState(0);
   const [now, setNow] = useState(Date.now());
 
-  // Читаем код комнаты из URL.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const c = params.get('code');
@@ -121,7 +114,6 @@ export default function ScreenPage() {
     if (c) setCode(c.trim().toUpperCase());
   }, []);
 
-  // Поллинг состояния.
   useEffect(() => {
     if (!code) return;
 
@@ -152,7 +144,6 @@ export default function ScreenPage() {
     };
   }, [code]);
 
-  // Смена подсказок на экране ожидания.
   useEffect(() => {
     const timer = setInterval(() => {
       setHintIndex((i) => (i + 1) % WAITING_HINTS.length);
@@ -161,7 +152,6 @@ export default function ScreenPage() {
     return () => clearInterval(timer);
   }, []);
 
-  // Автоперезагрузка, если потеряли связь дольше 30 сек.
   useEffect(() => {
     if (!error) return;
 
@@ -172,7 +162,6 @@ export default function ScreenPage() {
     return () => clearTimeout(timer);
   }, [error]);
 
-  // Ставим таймер, когда 5-й или 10-й вопрос зафиксирован.
   useEffect(() => {
     const lockedNow =
       !!state?.answers_locked ||
@@ -199,7 +188,6 @@ export default function ScreenPage() {
     scoresReadyAt
   ]);
 
-  // Тикер для now.
   useEffect(() => {
     if (scoresReadyAt === 0) return;
 
@@ -606,7 +594,7 @@ function ScreenShell({ children }) {
           font-weight: 700;
         }
 
-        /* РЕЙТИНГ */
+        /* ПРОМЕЖУТОЧНЫЙ РЕЙТИНГ */
         .scores-title {
           margin: 0 0 0.5rem;
           font-size: clamp(1.4rem, 2.6vw, 2.4rem);
@@ -673,16 +661,21 @@ function ScreenShell({ children }) {
         /* ФИНАЛ */
         .final-wrap {
           position: relative;
-          width: min(92vw, 1400px);
-          max-height: 92vh;
-          overflow: auto;
-          padding: 4vh 5vw;
-          border: 3px solid #f4c95d;
-          border-radius: 40px;
-          background: #ffffff;
-          box-shadow: 0 30px 80px rgb(83 57 23 / 12%);
+          width: min(94vw, 1500px);
+          max-height: 94vh;
+          overflow-y: auto;
+          padding: 5vh 4vw;
+          border-radius: 44px;
+          background:
+            radial-gradient(circle at 20% 0%, #fff7e0 0%, transparent 45%),
+            radial-gradient(circle at 80% 100%, #ffe9c2 0%, transparent 50%),
+            linear-gradient(160deg, #ffffff 0%, #fffdf7 55%, #fff5df 100%);
+          box-shadow:
+            0 30px 90px rgb(122 74 18 / 18%),
+            0 0 0 1px #f4d9a0 inset,
+            0 0 0 6px #fff7e0 inset;
           text-align: center;
-          animation: finalAppear 0.8s ease-out both;
+          animation: finalAppear 0.9s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
         }
 
         .final-wrap::-webkit-scrollbar {
@@ -694,105 +687,204 @@ function ScreenShell({ children }) {
           border-radius: 8px;
         }
 
+        .final-header {
+          margin: 0 0 3rem;
+        }
+
         .final-eyebrow {
-          margin: 0 0 1rem;
-          color: #9b713b;
-          font-size: clamp(0.9rem, 1.4vw, 1.2rem);
-          font-weight: 800;
-          letter-spacing: 0.2em;
+          display: inline-block;
+          margin: 0 0 1.2rem;
+          padding: 0.6rem 1.4rem;
+          border-radius: 999px;
+          background: linear-gradient(135deg, #ffe9b8, #ffd27a);
+          color: #7a4a12;
+          font-size: clamp(0.85rem, 1.2vw, 1.05rem);
+          font-weight: 850;
+          letter-spacing: 0.22em;
+          box-shadow: 0 6px 20px rgb(244 201 93 / 35%);
         }
 
         .final-h2 {
-          margin: 0 0 1.5rem;
-          font-size: clamp(1.6rem, 3vw, 2.6rem);
+          margin: 0 0 0.6rem;
+          font-size: clamp(1.8rem, 3.6vw, 3.2rem);
+          line-height: 1.1;
+          background: linear-gradient(135deg, #7a4a12 0%, #b77925 60%, #f4c95d 100%);
+          -webkit-background-clip: text;
+          background-clip: text;
+          -webkit-text-fill-color: transparent;
           color: #7a4a12;
         }
 
-        .final-hero {
-          margin: 0 0 1rem;
-          font-size: clamp(1.6rem, 3.4vw, 3rem);
-          line-height: 1.1;
-          color: #3b2a17;
+        .final-sub {
+          margin: 0;
+          color: #9b713b;
+          font-size: clamp(0.95rem, 1.4vw, 1.2rem);
+          font-weight: 600;
         }
-
-        .final-hero span {
-          color: #b77925;
-        }
-
-        .final-cake {
-          font-size: clamp(3rem, 7vw, 6rem);
-          line-height: 1;
-          margin: 0.5rem 0 1rem;
-          display: inline-block;
-          animation: cakeWobble 2.4s ease-in-out infinite;
-        }
-
-        .final-balloons {
-          margin-top: 1rem;
-          font-size: clamp(1.4rem, 2.6vw, 2.4rem);
-          letter-spacing: 0.6rem;
-        }
-
-        .final-balloons span {
-          display: inline-block;
-          animation: floatUp 3.4s ease-in-out infinite;
-        }
-
-        .final-balloons span:nth-child(2) { animation-delay: -0.6s; }
-        .final-balloons span:nth-child(3) { animation-delay: -1.2s; }
-        .final-balloons span:nth-child(4) { animation-delay: -1.8s; }
 
         .final-top {
-          margin: 2.5rem auto 0;
-          max-width: 960px;
+          margin: 0 auto;
+          max-width: 1000px;
           display: grid;
-          gap: 1rem;
+          gap: 1.2rem;
         }
 
         .podium-item {
           display: flex;
           align-items: center;
           gap: 1.4rem;
-          padding: 1.2rem 1.6rem;
-          border-radius: 20px;
-          background: #fffdf7;
-          border: 2px solid #eee4d5;
+          padding: 1.4rem 1.8rem;
+          border-radius: 24px;
+          background: #fffefb;
+          border: 2px solid #f0e3cb;
           text-align: left;
+          box-shadow: 0 8px 24px rgb(122 74 18 / 6%);
+          transition: transform 0.3s ease;
         }
 
         .podium-item.gold {
-          border-color: #f4c95d;
-          background: #fff3c4;
+          position: relative;
+          background:
+            linear-gradient(#fffefb, #fffefb) padding-box,
+            linear-gradient(135deg, #f4c95d, #ffb347, #f4c95d) border-box;
+          border: 3px solid transparent;
+          box-shadow:
+            0 14px 40px rgb(244 201 93 / 40%),
+            0 0 0 1px #fff3c4 inset;
+          transform: scale(1.03);
+        }
+
+        .podium-item.gold::before {
+          content: '';
+          position: absolute;
+          inset: -8px;
+          border-radius: 30px;
+          background: radial-gradient(circle, rgb(244 201 93 / 25), transparent 70%);
+          z-index: -1;
+          animation: goldGlow 2.6s ease-in-out infinite;
+        }
+
+        .podium-item.silver {
+          border-color: #d8dde3;
+          background: linear-gradient(135deg, #ffffff, #f4f6f8);
+        }
+
+        .podium-item.bronze {
+          border-color: #e8c9a8;
+          background: linear-gradient(135deg, #fffaf3, #fbeedb);
         }
 
         .podium-medal {
-          font-size: clamp(1.6rem, 2.6vw, 2.4rem);
+          font-size: clamp(1.8rem, 3vw, 2.8rem);
           flex: 0 0 auto;
+          filter: drop-shadow(0 4px 10px rgb(122 74 18 / 25%));
         }
 
         .podium-names {
           flex: 1;
-          font-weight: 800;
-          font-size: clamp(1rem, 1.6vw, 1.4rem);
+          font-weight: 850;
+          font-size: clamp(1.05rem, 1.8vw, 1.55rem);
           color: #2c1f12;
           overflow-wrap: anywhere;
+          line-height: 1.25;
         }
 
         .podium-names .sep {
-          color: #9b713b;
+          color: #c18b40;
           font-weight: 600;
-          margin: 0 0.4rem;
+          margin: 0 0.5rem;
         }
 
         .podium-points {
           color: #8a5c22;
-          font-size: clamp(0.9rem, 1.3vw, 1.15rem);
-          font-weight: 800;
+          font-size: clamp(0.95rem, 1.4vw, 1.2rem);
+          font-weight: 850;
           white-space: nowrap;
+          padding: 0.5rem 1rem;
+          border-radius: 999px;
+          background: #fff3c4;
         }
 
+        .podium-item.gold .podium-points {
+          background: linear-gradient(135deg, #ffe9b8, #f4c95d);
+          color: #5a3508;
+          box-shadow: 0 4px 14px rgb(244 201 93 / 40%);
+        }
+
+        .final-congrats {
+          position: relative;
+          margin: 4rem auto 0;
+          max-width: 900px;
+          padding: 3rem 2rem;
+          border-radius: 32px;
+          background:
+            radial-gradient(circle at 50% 0%, #fff7e0 0%, transparent 60%),
+            linear-gradient(160deg, #fffefb, #fff6e0);
+          border: 2px solid #f4d9a0;
+          box-shadow: 0 20px 60px rgb(122 74 18 / 10%);
+          animation: finalAppear 1.1s ease-out both;
+        }
+
+        .final-congrats-eyebrow {
+          margin: 0 0 1.2rem;
+          color: #b77925;
+          font-size: clamp(0.8rem, 1.1vw, 0.95rem);
+          font-weight: 850;
+          letter-spacing: 0.24em;
+        }
+
+        .final-congrats-text {
+          margin: 0 0 1.2rem;
+          font-size: clamp(2rem, 4.4vw, 4rem);
+          line-height: 1.05;
+          font-weight: 900;
+          letter-spacing: -0.02em;
+          background: linear-gradient(135deg, #7a4a12 0%, #b77925 55%, #e8b15e 100%);
+          -webkit-background-clip: text;
+          background-clip: text;
+          -webkit-text-fill-color: transparent;
+          color: #7a4a12;
+        }
+
+        .final-congrats-text span {
+          display: inline-block;
+          animation: nameFloat 3.2s ease-in-out infinite;
+        }
+
+        .final-congrats-sub {
+          margin: 0;
+          color: #8a5c22;
+          font-size: clamp(1rem, 1.6vw, 1.35rem);
+          font-weight: 600;
+        }
+
+        .final-cake {
+          display: inline-block;
+          margin: 2rem 0 0.5rem;
+          font-size: clamp(3.5rem, 8vw, 7rem);
+          line-height: 1;
+          animation: cakeWobble 2.6s ease-in-out infinite;
+          filter: drop-shadow(0 12px 24px rgb(244 201 93 / 40%));
+        }
+
+        .final-balloons {
+          margin-top: 1.2rem;
+          font-size: clamp(1.6rem, 3vw, 2.8rem);
+          letter-spacing: 0.7rem;
+        }
+
+        .final-balloons span {
+          display: inline-block;
+          animation: floatUp 3.6s ease-in-out infinite;
+          filter: drop-shadow(0 6px 14px rgb(122 74 18 / 20%));
+        }
+
+        .final-balloons span:nth-child(2) { animation-delay: -0.7s; }
+        .final-balloons span:nth-child(3) { animation-delay: -1.4s; }
+        .final-balloons span:nth-child(4) { animation-delay: -2.1s; }
+
         .final-all {
-          margin: 3rem auto 0;
+          margin: 3.5rem auto 0;
           max-width: 720px;
           display: grid;
           gap: 0.7rem;
@@ -803,8 +895,8 @@ function ScreenShell({ children }) {
           margin: 0 0 0.6rem;
           color: #9b713b;
           font-size: clamp(0.85rem, 1.2vw, 1rem);
-          font-weight: 800;
-          letter-spacing: 0.15em;
+          font-weight: 850;
+          letter-spacing: 0.2em;
           text-align: center;
         }
 
@@ -812,17 +904,17 @@ function ScreenShell({ children }) {
           display: flex;
           align-items: center;
           gap: 1rem;
-          padding: 0.7rem 1.1rem;
+          padding: 0.75rem 1.2rem;
           border-radius: 14px;
-          background: #fffdf9;
-          border: 1px solid #eee4d5;
+          background: #fffefb;
+          border: 1px solid #f0e3cb;
           font-size: clamp(0.95rem, 1.3vw, 1.15rem);
         }
 
         .final-row .rank {
           width: 2rem;
           color: #8a5c22;
-          font-weight: 800;
+          font-weight: 850;
         }
 
         .final-row .name {
@@ -833,7 +925,7 @@ function ScreenShell({ children }) {
         .final-row .pts {
           margin-left: auto;
           color: #8a5c22;
-          font-weight: 800;
+          font-weight: 850;
           white-space: nowrap;
         }
 
@@ -842,15 +934,17 @@ function ScreenShell({ children }) {
           inset: 0;
           pointer-events: none;
           overflow: hidden;
+          border-radius: 44px;
         }
 
         .confetti span {
           position: absolute;
-          top: -8%;
+          top: -10%;
           font-size: clamp(1rem, 1.6vw, 1.6rem);
-          animation: confettiFall 4.4s linear infinite;
-          animation-delay: calc(var(--i) * -0.35s);
+          animation: confettiFall 4.6s linear infinite;
+          animation-delay: calc(var(--i) * -0.3s);
           left: calc(var(--i) * 5.2%);
+          filter: drop-shadow(0 4px 6px rgb(122 74 18 / 15%));
         }
 
         @keyframes pulse {
@@ -866,6 +960,16 @@ function ScreenShell({ children }) {
         @keyframes cakeWobble {
           0%, 100% { transform: rotate(-4deg); }
           50% { transform: rotate(4deg); }
+        }
+
+        @keyframes goldGlow {
+          0%, 100% { opacity: 0.6; transform: scale(1); }
+          50% { opacity: 1; transform: scale(1.04); }
+        }
+
+        @keyframes nameFloat {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-6px); }
         }
 
         @keyframes confettiFall {
@@ -1122,6 +1226,7 @@ function IntermediateScoresScreen({ playNumber, ranked }) {
 
 function FinalScreen({ ranked, scores }) {
   const medals = ['🥇', '🥈', '🥉', '4', '5'];
+  const podiumClass = ['gold', 'silver', 'bronze', '', ''];
 
   return (
     <div className="final-wrap">
@@ -1133,37 +1238,28 @@ function FinalScreen({ ranked, scores }) {
         ))}
       </div>
 
-      <p className="final-eyebrow">🎉 ВИКТОРИНА ЗАВЕРШЕНА 🎉</p>
-
-      <h2 className="final-h2">Кто знает Надю лучше всех?</h2>
-
-      <p className="final-hero">
-        Спасибо, <span>Надя</span>!
-        <br />
-        С днём рождения! 🎂
-      </p>
-
-      <div className="final-cake" aria-hidden="true">🎂</div>
-
-      <div className="final-balloons" aria-hidden="true">
-        <span>🎈</span><span>🎈</span><span>🎈</span><span>🎈</span>
+      {/* ШАПКА + РЕЙТИНГ */}
+      <div className="final-header">
+        <p className="final-eyebrow">🎉 ВИКТОРИНА ЗАВЕРШЕНА</p>
+        <h2 className="final-h2">Кто знает Надю лучше всех?</h2>
+        <p className="final-sub">Барабанная дробь…</p>
       </div>
 
       {ranked.length > 0 && (
         <div className="final-top">
-          {ranked.map((group) => (
+          {ranked.map((group, i) => (
             <div
               key={group.rank}
-              className={'podium-item ' + (group.rank === 1 ? 'gold' : '')}
+              className={'podium-item ' + (podiumClass[i] || '')}
             >
               <span className="podium-medal">
                 {medals[group.rank - 1] || group.rank}
               </span>
 
               <span className="podium-names">
-                {group.players.map((p, i) => (
+                {group.players.map((p, idx) => (
                   <span key={p.player_id}>
-                    {i > 0 && <span className="sep">·</span>}
+                    {idx > 0 && <span className="sep">·</span>}
                     {p.display_name}
                   </span>
                 ))}
@@ -1182,6 +1278,27 @@ function FinalScreen({ ranked, scores }) {
         </div>
       )}
 
+      {/* ПОЗДРАВЛЕНИЕ */}
+      <div className="final-congrats">
+        <p className="final-congrats-eyebrow">ОТ ВСЕХ ГОСТЕЙ</p>
+
+        <h3 className="final-congrats-text">
+          Спасибо, <span>Надя</span>!
+        </h3>
+
+        <p className="final-congrats-sub">
+          С днём рождения! Пусть каждый день будет
+          таким же тёплым, как этот вечер 🎂
+        </p>
+
+        <div className="final-cake" aria-hidden="true">🎂</div>
+
+        <div className="final-balloons" aria-hidden="true">
+          <span>🎈</span><span>🎈</span><span>🎈</span><span>🎈</span>
+        </div>
+      </div>
+
+      {/* ПОЛНЫЙ СПИСОК */}
       {scores.length > 5 && (
         <div className="final-all">
           <p className="final-all-title">ВСЕ УЧАСТНИКИ</p>
