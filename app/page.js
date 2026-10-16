@@ -251,6 +251,10 @@ export default function Home() {
       ? null
       : Number(rawCorrectAnswer);
 
+  // Ответила ли Надя на текущий вопрос — от этого зависит,
+  // можно ли ведущему зафиксировать ответы.
+  const nadyaAnswered = !!state?.nadya_answered;
+
   const inviteUrl =
     typeof window !== 'undefined' && room?.room_code
       ? window.location.origin + '/?code=' + room.room_code
@@ -583,10 +587,12 @@ export default function Home() {
                   state?.room?.voting_open && (
                     <button
                       className="primary"
-                      disabled={busy}
+                      disabled={busy || !nadyaAnswered}
                       onClick={() => hostAction('lock')}
                     >
-                      Зафиксировать ответы
+                      {nadyaAnswered
+                        ? 'Зафиксировать ответы'
+                        : 'Ждём ответ Нади…'}
                     </button>
                   )}
 
@@ -613,6 +619,15 @@ export default function Home() {
                   </button>
                 )}
               </div>
+
+              {state?.room?.status === 'playing' &&
+                state?.room?.voting_open &&
+                !nadyaAnswered && (
+                  <p className="muted small">
+                    Надя ещё не выбрала ответ. Как только она ответит,
+                    кнопка фиксации станет активной.
+                  </p>
+                )}
             </section>
           )}
 
@@ -673,9 +688,7 @@ export default function Home() {
                     const classes = [
                       'option',
                       hasAnswered && myAnswer === index ? 'selected' : '',
-                      // После фиксации правильный ответ Нади всегда зелёный.
                       isCorrect ? 'correct' : '',
-                      // Неправильный выбор конкретного игрока красный.
                       isMyWrong ? 'incorrect' : ''
                     ]
                       .filter(Boolean)
@@ -710,8 +723,12 @@ export default function Home() {
                   <p className="muted small">
                     {state?.room?.voting_open
                       ? hasAnswered
-                        ? 'Твой ответ принят. Его можно изменить до фиксации.'
-                        : 'Выбери вариант ответа.'
+                        ? mode === 'nadya'
+                          ? 'Твой ответ принят. Как только ты выберешь, ведущий сможет зафиксировать ответы.'
+                          : 'Твой ответ принят. Его можно изменить до фиксации.'
+                        : mode === 'nadya'
+                          ? 'Выбери вариант — от твоего ответа зависит, когда ведущий сможет зафиксировать ответы.'
+                          : 'Выбери вариант ответа.'
                       : 'Ответы зафиксированы.'}
                   </p>
                 )}
