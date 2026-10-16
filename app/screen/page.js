@@ -290,7 +290,7 @@ export default function ScreenPage() {
       )}
 
       {isFinished && (
-        <FinalScreen ranked={ranked} scores={scores} />
+        <FinalScreen ranked={ranked} />
       )}
 
       {showIntermediateScores && (
@@ -342,7 +342,7 @@ function ScreenShell({ children }) {
           display: flex;
           align-items: center;
           justify-content: center;
-          padding: 4vh 4vw;
+          padding: 3vh 3vw;
           background:
             radial-gradient(circle at 50% 0%, #fff4d8 0%, #fff9f0 55%, #fff9f0 100%);
         }
@@ -376,7 +376,7 @@ function ScreenShell({ children }) {
 
         .card {
           width: min(92vw, 1400px);
-          padding: 5vh 5vw;
+          padding: 4vh 5vw;
           border: 1px solid #eee0cc;
           border-radius: 36px;
           background: #ffffff;
@@ -602,14 +602,14 @@ function ScreenShell({ children }) {
         }
 
         .scores-sub {
-          margin: 0 0 2.5rem;
+          margin: 0 0 2rem;
           color: #786f66;
           font-size: clamp(0.95rem, 1.4vw, 1.2rem);
         }
 
         .scores-list {
           display: grid;
-          gap: 1.2rem;
+          gap: 1rem;
           max-width: 960px;
           margin: 0 auto;
         }
@@ -618,11 +618,11 @@ function ScreenShell({ children }) {
           display: flex;
           align-items: center;
           gap: 1.4rem;
-          padding: 1.4rem 1.8rem;
+          padding: 1.2rem 1.6rem;
           border: 2px solid #eee4d5;
           border-radius: 22px;
           background: #fffdf9;
-          font-size: clamp(1.1rem, 1.8vw, 1.6rem);
+          font-size: clamp(1.05rem, 1.7vw, 1.5rem);
         }
 
         .score-item.first {
@@ -631,7 +631,7 @@ function ScreenShell({ children }) {
         }
 
         .score-rank {
-          font-size: clamp(1.6rem, 2.4vw, 2.2rem);
+          font-size: clamp(1.5rem, 2.3vw, 2.1rem);
           font-weight: 800;
           width: 2.8rem;
           text-align: center;
@@ -662,9 +662,11 @@ function ScreenShell({ children }) {
         .final-wrap {
           position: relative;
           width: min(94vw, 1500px);
-          max-height: 94vh;
-          overflow-y: auto;
-          padding: 5vh 4vw;
+          height: 94vh;
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+          padding: 3.5vh 4vw;
           border-radius: 44px;
           background:
             radial-gradient(circle at 20% 0%, #fff7e0 0%, transparent 45%),
@@ -675,71 +677,54 @@ function ScreenShell({ children }) {
             0 0 0 1px #f4d9a0 inset,
             0 0 0 6px #fff7e0 inset;
           text-align: center;
+          overflow: hidden;
           animation: finalAppear 0.9s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
         }
 
-        .final-wrap::-webkit-scrollbar {
-          width: 8px;
-        }
-
-        .final-wrap::-webkit-scrollbar-thumb {
-          background: #ead8bb;
-          border-radius: 8px;
-        }
-
         .final-header {
-          margin: 0 0 3rem;
+          margin: 0;
         }
 
         .final-eyebrow {
           display: inline-block;
-          margin: 0 0 1.2rem;
-          padding: 0.6rem 1.4rem;
+          margin: 0 0 0.8rem;
+          padding: 0.5rem 1.2rem;
           border-radius: 999px;
           background: linear-gradient(135deg, #ffe9b8, #ffd27a);
           color: #7a4a12;
-          font-size: clamp(0.85rem, 1.2vw, 1.05rem);
+          font-size: clamp(0.75rem, 1vw, 0.95rem);
           font-weight: 850;
-          letter-spacing: 0.22em;
+          letter-spacing: 0.2em;
           box-shadow: 0 6px 20px rgb(244 201 93 / 35%);
         }
 
         .final-h2 {
-          margin: 0 0 0.6rem;
-          font-size: clamp(1.8rem, 3.6vw, 3.2rem);
+          margin: 0;
+          font-size: clamp(1.4rem, 2.6vw, 2.4rem);
           line-height: 1.1;
-          background: linear-gradient(135deg, #7a4a12 0%, #b77925 60%, #f4c95d 100%);
-          -webkit-background-clip: text;
-          background-clip: text;
-          -webkit-text-fill-color: transparent;
           color: #7a4a12;
         }
 
-        .final-sub {
-          margin: 0;
-          color: #9b713b;
-          font-size: clamp(0.95rem, 1.4vw, 1.2rem);
-          font-weight: 600;
-        }
-
         .final-top {
-          margin: 0 auto;
-          max-width: 1000px;
-          display: grid;
-          gap: 1.2rem;
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          gap: 0.9vh;
+          max-width: 1100px;
+          margin: 1.5vh auto;
+          width: 100%;
         }
 
         .podium-item {
           display: flex;
           align-items: center;
-          gap: 1.4rem;
-          padding: 1.4rem 1.8rem;
-          border-radius: 24px;
+          gap: 1.2rem;
+          padding: 1.2vh 1.6vw;
+          border-radius: 20px;
           background: #fffefb;
           border: 2px solid #f0e3cb;
           text-align: left;
           box-shadow: 0 8px 24px rgb(122 74 18 / 6%);
-          transition: transform 0.3s ease;
         }
 
         .podium-item.gold {
@@ -751,14 +736,13 @@ function ScreenShell({ children }) {
           box-shadow:
             0 14px 40px rgb(244 201 93 / 40%),
             0 0 0 1px #fff3c4 inset;
-          transform: scale(1.03);
         }
 
         .podium-item.gold::before {
           content: '';
           position: absolute;
           inset: -8px;
-          border-radius: 30px;
+          border-radius: 28px;
           background: radial-gradient(circle, rgb(244 201 93 / 25), transparent 70%);
           z-index: -1;
           animation: goldGlow 2.6s ease-in-out infinite;
@@ -775,7 +759,7 @@ function ScreenShell({ children }) {
         }
 
         .podium-medal {
-          font-size: clamp(1.8rem, 3vw, 2.8rem);
+          font-size: clamp(1.4rem, 2.2vw, 2.2rem);
           flex: 0 0 auto;
           filter: drop-shadow(0 4px 10px rgb(122 74 18 / 25%));
         }
@@ -783,10 +767,10 @@ function ScreenShell({ children }) {
         .podium-names {
           flex: 1;
           font-weight: 850;
-          font-size: clamp(1.05rem, 1.8vw, 1.55rem);
+          font-size: clamp(0.95rem, 1.5vw, 1.35rem);
           color: #2c1f12;
           overflow-wrap: anywhere;
-          line-height: 1.25;
+          line-height: 1.2;
         }
 
         .podium-names .sep {
@@ -797,10 +781,10 @@ function ScreenShell({ children }) {
 
         .podium-points {
           color: #8a5c22;
-          font-size: clamp(0.95rem, 1.4vw, 1.2rem);
+          font-size: clamp(0.85rem, 1.2vw, 1.05rem);
           font-weight: 850;
           white-space: nowrap;
-          padding: 0.5rem 1rem;
+          padding: 0.4rem 0.9rem;
           border-radius: 999px;
           background: #fff3c4;
         }
@@ -813,64 +797,67 @@ function ScreenShell({ children }) {
 
         .final-congrats {
           position: relative;
-          margin: 4rem auto 0;
+          margin: 0 auto;
           max-width: 900px;
-          padding: 3rem 2rem;
-          border-radius: 32px;
+          width: 100%;
+          padding: 2.5vh 2vw;
+          border-radius: 28px;
           background:
             radial-gradient(circle at 50% 0%, #fff7e0 0%, transparent 60%),
             linear-gradient(160deg, #fffefb, #fff6e0);
           border: 2px solid #f4d9a0;
           box-shadow: 0 20px 60px rgb(122 74 18 / 10%);
-          animation: finalAppear 1.1s ease-out both;
         }
 
         .final-congrats-eyebrow {
-          margin: 0 0 1.2rem;
+          margin: 0 0 0.6rem;
           color: #b77925;
-          font-size: clamp(0.8rem, 1.1vw, 0.95rem);
+          font-size: clamp(0.7rem, 0.95vw, 0.85rem);
           font-weight: 850;
-          letter-spacing: 0.24em;
+          letter-spacing: 0.22em;
         }
 
         .final-congrats-text {
-          margin: 0 0 1.2rem;
-          font-size: clamp(2rem, 4.4vw, 4rem);
-          line-height: 1.05;
+          margin: 0 0 0.6rem;
+          font-size: clamp(1.6rem, 3vw, 2.6rem);
+          line-height: 1.1;
           font-weight: 900;
-          letter-spacing: -0.02em;
-          background: linear-gradient(135deg, #7a4a12 0%, #b77925 55%, #e8b15e 100%);
-          -webkit-background-clip: text;
-          background-clip: text;
-          -webkit-text-fill-color: transparent;
+          letter-spacing: -0.01em;
           color: #7a4a12;
         }
 
         .final-congrats-text span {
           display: inline-block;
+          color: #b77925;
           animation: nameFloat 3.2s ease-in-out infinite;
         }
 
         .final-congrats-sub {
           margin: 0;
           color: #8a5c22;
-          font-size: clamp(1rem, 1.6vw, 1.35rem);
+          font-size: clamp(0.9rem, 1.3vw, 1.15rem);
           font-weight: 600;
+        }
+
+        .final-emoji-row {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 1.4rem;
+          margin-top: 1.5vh;
         }
 
         .final-cake {
           display: inline-block;
-          margin: 2rem 0 0.5rem;
-          font-size: clamp(3.5rem, 8vw, 7rem);
+          font-size: clamp(2.4rem, 5vw, 4.4rem);
           line-height: 1;
           animation: cakeWobble 2.6s ease-in-out infinite;
           filter: drop-shadow(0 12px 24px rgb(244 201 93 / 40%));
         }
 
         .final-balloons {
-          margin-top: 1.2rem;
-          font-size: clamp(1.6rem, 3vw, 2.8rem);
-          letter-spacing: 0.7rem;
+          font-size: clamp(1.4rem, 2.4vw, 2.2rem);
+          letter-spacing: 0.5rem;
         }
 
         .final-balloons span {
@@ -882,52 +869,6 @@ function ScreenShell({ children }) {
         .final-balloons span:nth-child(2) { animation-delay: -0.7s; }
         .final-balloons span:nth-child(3) { animation-delay: -1.4s; }
         .final-balloons span:nth-child(4) { animation-delay: -2.1s; }
-
-        .final-all {
-          margin: 3.5rem auto 0;
-          max-width: 720px;
-          display: grid;
-          gap: 0.7rem;
-          text-align: left;
-        }
-
-        .final-all-title {
-          margin: 0 0 0.6rem;
-          color: #9b713b;
-          font-size: clamp(0.85rem, 1.2vw, 1rem);
-          font-weight: 850;
-          letter-spacing: 0.2em;
-          text-align: center;
-        }
-
-        .final-row {
-          display: flex;
-          align-items: center;
-          gap: 1rem;
-          padding: 0.75rem 1.2rem;
-          border-radius: 14px;
-          background: #fffefb;
-          border: 1px solid #f0e3cb;
-          font-size: clamp(0.95rem, 1.3vw, 1.15rem);
-        }
-
-        .final-row .rank {
-          width: 2rem;
-          color: #8a5c22;
-          font-weight: 850;
-        }
-
-        .final-row .name {
-          font-weight: 700;
-          overflow-wrap: anywhere;
-        }
-
-        .final-row .pts {
-          margin-left: auto;
-          color: #8a5c22;
-          font-weight: 850;
-          white-space: nowrap;
-        }
 
         .confetti {
           position: absolute;
@@ -1224,7 +1165,7 @@ function IntermediateScoresScreen({ playNumber, ranked }) {
 
 /* ---------------- ЭКРАН: ФИНАЛ ---------------- */
 
-function FinalScreen({ ranked, scores }) {
+function FinalScreen({ ranked }) {
   const medals = ['🥇', '🥈', '🥉', '4', '5'];
   const podiumClass = ['gold', 'silver', 'bronze', '', ''];
 
@@ -1238,13 +1179,13 @@ function FinalScreen({ ranked, scores }) {
         ))}
       </div>
 
-      {/* ШАПКА + РЕЙТИНГ */}
+      {/* ШАПКА */}
       <div className="final-header">
         <p className="final-eyebrow">🎉 ВИКТОРИНА ЗАВЕРШЕНА</p>
         <h2 className="final-h2">Кто знает Надю лучше всех?</h2>
-        <p className="final-sub">Барабанная дробь…</p>
       </div>
 
+      {/* ТОП-5 */}
       {ranked.length > 0 && (
         <div className="final-top">
           {ranked.map((group, i) => (
@@ -1288,37 +1229,16 @@ function FinalScreen({ ranked, scores }) {
 
         <p className="final-congrats-sub">
           С днём рождения! Пусть каждый день будет
-          таким же тёплым, как этот вечер 🎂
+          таким же тёплым, как этот вечер
         </p>
 
-        <div className="final-cake" aria-hidden="true">🎂</div>
-
-        <div className="final-balloons" aria-hidden="true">
-          <span>🎈</span><span>🎈</span><span>🎈</span><span>🎈</span>
+        <div className="final-emoji-row">
+          <div className="final-cake" aria-hidden="true">🎂</div>
+          <div className="final-balloons" aria-hidden="true">
+            <span>🎈</span><span>🎈</span><span>🎈</span><span>🎈</span>
+          </div>
         </div>
       </div>
-
-      {/* ПОЛНЫЙ СПИСОК */}
-      {scores.length > 5 && (
-        <div className="final-all">
-          <p className="final-all-title">ВСЕ УЧАСТНИКИ</p>
-
-          {scores.map((s, i) => (
-            <div key={s.player_id} className="final-row">
-              <span className="rank">{i + 1}</span>
-              <span className="name">{s.display_name}</span>
-              <span className="pts">
-                {s.points}{' '}
-                {s.points === 1
-                  ? 'балл'
-                  : s.points > 1 && s.points < 5
-                    ? 'балла'
-                    : 'баллов'}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
