@@ -222,12 +222,16 @@ export default function Home() {
   }
 
   const question = state?.question;
-  const myAnswer = state?.my_answer;
+  const rawMyAnswer = state?.my_answer;
+  const myAnswer =
+    rawMyAnswer === null || rawMyAnswer === undefined
+      ? null
+      : Number(rawMyAnswer);
 
   const hasAnswered =
     !!player &&
     myAnswer !== null &&
-    myAnswer !== undefined;
+    Number.isInteger(myAnswer);
 
   const playNumber =
     question?.play_number ||
@@ -241,9 +245,11 @@ export default function Home() {
       !state?.room?.voting_open
     );
 
-  const correctAnswer = answersLocked
-    ? state?.nadya_answer
-    : null;
+  const rawCorrectAnswer = answersLocked ? state?.nadya_answer : null;
+  const correctAnswer =
+    rawCorrectAnswer === null || rawCorrectAnswer === undefined
+      ? null
+      : Number(rawCorrectAnswer);
 
   const inviteUrl =
     typeof window !== 'undefined' && room?.room_code
@@ -659,10 +665,10 @@ export default function Home() {
 
                     const classes = [
                       'option',
-                      hasAnswered && myAnswer === index
-                        ? 'selected'
-                        : '',
+                      hasAnswered && myAnswer === index ? 'selected' : '',
+                      // После фиксации правильный ответ Нади всегда зелёный.
                       isCorrect ? 'correct' : '',
+                      // Неправильный выбор конкретного игрока красный.
                       isMyWrong ? 'incorrect' : ''
                     ]
                       .filter(Boolean)
