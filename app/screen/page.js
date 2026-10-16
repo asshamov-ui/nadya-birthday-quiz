@@ -279,6 +279,11 @@ export default function ScreenPage() {
   const scores = state.scores || [];
   const ranked = groupByRank(scores);
 
+  const answeredCount = state.answered_count || 0;
+  const totalGuests = (state.players || []).filter(
+    (p) => p.role !== 'nadya'
+  ).length;
+
   return (
     <ScreenShell>
       {isWaiting && (
@@ -302,6 +307,7 @@ export default function ScreenPage() {
 
       {!isWaiting && !isFinished && !showIntermediateScores && question && (
         <QuestionScreen
+          key={playNumber}
           playNumber={playNumber}
           totalQuestions={16}
           question={question}
@@ -309,6 +315,8 @@ export default function ScreenPage() {
           correctAnswer={correctAnswer}
           secondsLeft={secondsLeft}
           isScoresQuestion={isScoresQuestion}
+          answeredCount={answeredCount}
+          totalGuests={totalGuests}
         />
       )}
     </ScreenShell>
@@ -382,6 +390,7 @@ function ScreenShell({ children }) {
           background: #ffffff;
           box-shadow: 0 20px 60px rgb(83 57 23 / 8%);
           text-align: center;
+          animation: cardIn 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.1) both;
         }
 
         /* ОЖИДАНИЕ */
@@ -480,11 +489,26 @@ function ScreenShell({ children }) {
         }
 
         /* ВОПРОС */
+        .progress-bar {
+          height: 6px;
+          background: #f0e3cb;
+          border-radius: 999px;
+          overflow: hidden;
+          margin-bottom: 2rem;
+        }
+
+        .progress-fill {
+          height: 100%;
+          background: linear-gradient(90deg, #b77925, #f4c95d);
+          border-radius: 999px;
+          transition: width 0.6s ease-out;
+        }
+
         .q-top {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          margin-bottom: 2.2rem;
+          margin-bottom: 2rem;
           flex-wrap: wrap;
           gap: 1rem;
         }
@@ -533,7 +557,7 @@ function ScreenShell({ children }) {
           font-size: clamp(1rem, 1.6vw, 1.5rem);
           color: #352c25;
           text-align: left;
-          transition: all 0.2s ease;
+          transition: all 0.3s ease;
         }
 
         .q-option-letter {
@@ -554,6 +578,7 @@ function ScreenShell({ children }) {
           background: #d9f8e3;
           color: #14532d;
           font-weight: 700;
+          animation: correctPulse 0.7s ease-out both;
         }
 
         .q-option.dim {
@@ -568,6 +593,7 @@ function ScreenShell({ children }) {
           border: 1px solid #a6d9b5;
           color: #14532d;
           font-size: clamp(1rem, 1.5vw, 1.4rem);
+          animation: revealIn 0.5s ease-out both;
         }
 
         .reveal-badge strong {
@@ -623,6 +649,7 @@ function ScreenShell({ children }) {
           border-radius: 22px;
           background: #fffdf9;
           font-size: clamp(1.05rem, 1.7vw, 1.5rem);
+          animation: scoreDrop 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
         }
 
         .score-item.first {
@@ -929,6 +956,45 @@ function ScreenShell({ children }) {
           to { opacity: 1; transform: translateY(0) scale(1); }
         }
 
+        @keyframes cardIn {
+          from {
+            opacity: 0;
+            transform: translateX(40px);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(0);
+          }
+        }
+
+        @keyframes scoreDrop {
+          from {
+            opacity: 0;
+            transform: translateY(-20px) scale(0.95);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+
+        @keyframes correctPulse {
+          0% { transform: scale(1); }
+          50% { transform: scale(1.03); }
+          100% { transform: scale(1); }
+        }
+
+        @keyframes revealIn {
+          from {
+            opacity: 0;
+            transform: translateY(12px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
         @media (max-width: 900px) {
           .waiting {
             grid-template-columns: 1fr;
@@ -1050,12 +1116,24 @@ function QuestionScreen({
   votingOpen,
   correctAnswer,
   secondsLeft,
-  isScoresQuestion
+  isScoresQuestion,
+  answeredCount,
+  totalGuests
 }) {
   const locked = correctAnswer !== null && correctAnswer !== undefined;
+  const progress = Math.min(100, (playNumber / totalQuestions) * 100);
+
+  const allAnswered = totalGuests > 0 && answeredCount >= totalGuests;
 
   return (
     <div className="card">
+      <div className="progress-bar">
+        <div
+          className="progress-fill"
+          style={{ width: progress + '%' }}
+        />
+      </div>
+
       <div className="q-top">
         <span className="q-pill">
           ВОПРОС {playNumber} / {totalQuestions}
@@ -1101,7 +1179,11 @@ function QuestionScreen({
       {votingOpen && (
         <p className="voting-pulse">
           <span>●</span>
-          Ведущий ждёт, пока все ответят…
+          {allAnswered
+            ? 'Все ответили! Ведущий может фиксировать.'
+            : totalGuests > 0
+              ? `Ответили: ${answeredCount} из ${totalGuests}`
+              : 'Ведущий ждёт, пока все ответят…'}
         </p>
       )}
 
@@ -1130,19 +1212,20 @@ function IntermediateScoresScreen({ playNumber, ranked }) {
           <p className="muted">Пока никто не набрал баллов.</p>
         )}
 
-        {ranked.map((group) => (
+        {ranked.map((group, i) => (
           <div
             key={group.rank}
             className={'score-item ' + (group.rank === 1 ? 'first' : '')}
+            style={{ animationDelay: (i * 0.15) + 's' }}
           >
             <span className="score-rank">
               {medals[group.rank - 1] || group.rank}
             </span>
 
             <span className="score-names">
-              {group.players.map((p, i) => (
+              {group.players.map((p, idx) => (
                 <span key={p.player_id}>
-                  {i > 0 && <span className="sep">·</span>}
+                  {idx > 0 && <span className="sep">·</span>}
                   {p.display_name}
                 </span>
               ))}
@@ -1179,13 +1262,11 @@ function FinalScreen({ ranked }) {
         ))}
       </div>
 
-      {/* ШАПКА */}
       <div className="final-header">
         <p className="final-eyebrow">🎉 ВИКТОРИНА ЗАВЕРШЕНА</p>
         <h2 className="final-h2">Кто знает Надю лучше всех?</h2>
       </div>
 
-      {/* ТОП-5 */}
       {ranked.length > 0 && (
         <div className="final-top">
           {ranked.map((group, i) => (
@@ -1219,7 +1300,6 @@ function FinalScreen({ ranked }) {
         </div>
       )}
 
-      {/* ПОЗДРАВЛЕНИЕ */}
       <div className="final-congrats">
         <p className="final-congrats-eyebrow">ОТ ВСЕХ ГОСТЕЙ</p>
 
