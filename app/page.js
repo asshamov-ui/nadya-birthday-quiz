@@ -2,53 +2,31 @@
 
 import { useEffect, useState } from 'react';
 
-const POLL_INTERVAL = 2200;
-const HINT_INTERVAL = 4200;
+const STORAGE_KEY = 'nadya_quiz_session';
 
-// Сколько миллисекунд показывать ответ Нади, прежде чем
-// переключиться на промежуточный рейтинг (после 5 и 10 вопроса).
-const SCORES_DELAY_MS = 8000;
+async function api(payload) {
+  const response = await fetch('/api/quiz', {
+    method: payload ? 'POST' : 'GET',
+    headers: payload
+      ? { 'Content-Type': 'application/json' }
+      : undefined,
+    body: payload ? JSON.stringify(payload) : undefined,
+    cache: 'no-store'
+  });
 
-// Сколько мест показываем в рейтинге.
-const TOP_PLACES = 5;
+  const data = await response.json().catch(() => ({}));
 
-const WAITING_HINTS = [
-  'Надя уже накрасилась? 💄',
-  'Гости подтягиваются… 🚶‍♀️🚶',
-  'Ставки сделаны? Скоро начнём 🎉',
-  'Кто знает Надю лучше всех? Сейчас узнаем 🤔',
-  'Ведущий что-то замышляет… 😏',
-  'Ещё пара секунд — и начнём ✨',
-  'Надя волнуется. Или притворяется 😅',
-  'Проверьте, что телефон заряжен 🔋',
-  'Сейчас будет очень интересно 🔥',
-  'А вы точно знаете Надю? Сейчас проверим 🧐',
-  'Отвечать честно, не подглядывать! 🙈',
-  'Кто первый угадает — тому слава 🏆',
-  'Этот квиз одобрен самой именинницей 👑',
-  'Готовьтесь удивляться 🤯',
-  'Один вопрос — один шанс 🎯',
-  'Не переживайте, будет весело 🎈',
-  'Надя уже готовит правильные ответы ✍️',
-  'Если не знаете — угадывайте 😄',
-  'Сегодня всё по-честному 🍀',
-  'Уважаемые гости, пристегнитесь 🚀',
-  'На счёт три… ещё не сейчас 😜',
-  'Кто-то уже придумал свою стратегию 🧠',
-  'Осталось совсем чуть-чуть ⏳',
-  'Именинница, ваша партия! 👸',
-  'Проверяем, кто тут настоящий друг Нади 💛',
-  'Начинаем, как только все усядутся 🪑',
-  'В воздухе витает интрига 🎭',
-  'Один из вас станет легендой 🌟',
-  'Ведущий репетирует драматическую паузу 🎬',
-  'Держите напитки — сейчас начнётся 🥂',
-  'Надя уже знает ответы. А вы? 😎',
-  'Скоро. Очень скоро. Даже быстрее 🕐'
-];
+  if (!response.ok) {
+    throw new Error(data.error || 'Не удалось выполнить запрос');
+  }
 
-async function apiGetState(roomCode) {
+  return data;
+}
+
+async function apiGetState(roomCode, playerId) {
   const query = new URLSearchParams({ code: roomCode });
+
+  if (playerId) query.set('player_id', playerId);
 
   const response = await fetch('/api/quiz?' + query.toString(), {
     cache: 'no-store'
@@ -57,940 +35,1609 @@ async function apiGetState(roomCode) {
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(data.error || 'Не удалось получить состояние игры');
+    throw new Error(data.error || 'Не удалось обновить комнату');
   }
 
   return data;
 }
 
-/**
- * Группирует игроков по очкам и возвращает список «мест»
- * в олимпийской системе: если несколько игроков набрали
- * одинаково, они делят место, а следующее место сдвигается
- * на количество занятых.
- *
- * Пример: 5, 5, 4, 3, 3, 3 → места 1, 1, 3, 4, 4, 4
- */
-function groupByRank(scores) {
-  if (!Array.isArray(scores) || scores.length === 0) return [];
+function saveSession(session) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+  } catch (_) {}
+}
 
-  const sorted = [...scores].sort(
-    (a, b) =>
-      b.points - a.points ||
-      a.display_name.localeCompare(b.display_name, 'ru')
-  );
+function loadSession() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (_) {
+    return null;
+  }
+}
 
-  const groups = [];
-  let lastPoints = null;
-  let place = 0;
+function clearSession() {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch (_) {}
+}
 
-  for (const s of sorted) {
-    if (lastPoints === null || s.points !== lastPoints) {
-      // Новая группа — её место равно количеству уже разобранных
-      // игроков плюс один. Так места сдвигаются на количество
-      // тех, кто выше, а не на номер группы.
-      place =
-        groups.reduce((sum, g) => sum + g.players.length, 0) + 1;
-      lastPoints = s.points;
+export default function Home() {
+  const [mode, setMode] = useState('home');
+  const [name, setName] = useState('');
+  const [code, setCode] = useState('');
+  const [pin, setPin] = useState('');
+  const [nadyaPin, setNadyaPin] = useState('');
+  const [room, setRoom] = useState(null);
+  const [player, setPlayer] = useState(null);
+  const [state, setState] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [restoring, setRestoring] = useState(true);
 
-      groups.push({
-        rank: place,
-        points: s.points,
-        players: [s]
-      });
-    } else {
-      groups[groups.length - 1].players.push(s);
+  // Восстановление сессии при загрузке.
+  useEffect(() => {
+    const session = loadSession();
+    const invite = new URLSearchParams(window.location.search).get('code');
+    const urlCode = invite ? invite.toUpperCase() : '';
+
+    if (!session) {
+      if (urlCode) {
+        setCode(urlCode);
+        setMode('join');
+      }
+      setRestoring(false);
+      return;
+    }
+
+    const savedCode = session.room_code;
+    const savedRole = session.role;
+    const savedPlayerId = session.player_id;
+
+    if (!savedCode || !savedRole) {
+      clearSession();
+      setRestoring(false);
+      return;
+    }
+
+    setCode(savedCode);
+    setPin(session.host_pin || '');
+
+    (async () => {
+      try {
+        const fresh = await apiGetState(
+          savedCode,
+          savedPlayerId || undefined
+        );
+
+        if (!fresh?.room) {
+          clearSession();
+          if (urlCode) {
+            setCode(urlCode);
+            setMode('join');
+          }
+          setRestoring(false);
+          return;
+        }
+
+        setRoom({ room_code: savedCode });
+        setState(fresh);
+
+        if (savedRole === 'host') {
+          setMode('host');
+        } else if (savedRole === 'nadya') {
+          const me = (fresh.players || []).find(
+            (p) => p.role === 'nadya'
+          );
+          if (me) {
+            setPlayer({
+              id: me.id,
+              display_name: me.display_name,
+              role: me.role
+            });
+            setName(me.display_name);
+            setMode('nadya');
+          } else {
+            clearSession();
+            setMode('join');
+          }
+        } else {
+          const me = (fresh.players || []).find(
+            (p) => p.id === savedPlayerId
+          );
+          if (me) {
+            setPlayer({
+              id: me.id,
+              display_name: me.display_name,
+              role: me.role
+            });
+            setName(me.display_name);
+            setMode('guest');
+          } else {
+            clearSession();
+            setMode('join');
+          }
+        }
+      } catch (_) {
+        clearSession();
+        if (urlCode) {
+          setCode(urlCode);
+          setMode('join');
+        }
+      } finally {
+        setRestoring(false);
+      }
+    })();
+  }, []);
+
+  // Опрос состояния — только когда есть код и сессия восстановлена.
+  useEffect(() => {
+    const activeCode = room?.room_code || code;
+
+    if (!activeCode || restoring) return;
+
+    const timer = setInterval(async () => {
+      try {
+        const newState = await apiGetState(activeCode, player?.id);
+        setState(newState);
+      } catch (_) {
+        // Временная ошибка сети не прерывает игру.
+      }
+    }, 2200);
+
+    return () => clearInterval(timer);
+  }, [room?.room_code, code, player?.id, restoring]);
+
+  async function run(action) {
+    setBusy(true);
+    setError('');
+    setNotice('');
+
+    try {
+      return await action();
+    } catch (e) {
+      setError(e.message || 'Что-то пошло не так');
+      return null;
+    } finally {
+      setBusy(false);
     }
   }
 
-  return groups.slice(0, TOP_PLACES);
-}
+  async function createRoom() {
+    const result = await run(() =>
+      api({
+        action: 'create_room',
+        pin
+      })
+    );
 
-function medalFor(rank) {
-  if (rank === 1) return '🥇';
-  if (rank === 2) return '🥈';
-  if (rank === 3) return '🥉';
-  return rank;
-}
+    if (!result) return;
 
-function podiumClassFor(rank) {
-  if (rank === 1) return 'gold';
-  if (rank === 2) return 'silver';
-  if (rank === 3) return 'bronze';
-  return '';
-}
+    setRoom(result.room);
+    setCode(result.room.room_code);
+    setPlayer(null);
+    setMode('host');
 
-export default function ScreenPage() {
-  const [code, setCode] = useState('');
-  const [state, setState] = useState(null);
-  const [error, setError] = useState('');
-  const [hintIndex, setHintIndex] = useState(0);
+    saveSession({
+      room_code: result.room.room_code,
+      role: 'host',
+      host_pin: pin,
+      player_id: null
+    });
 
-  const [scoresReadyAt, setScoresReadyAt] = useState(0);
-  const [now, setNow] = useState(Date.now());
+    setState(await apiGetState(result.room.room_code));
 
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const c = params.get('code');
+    window.history.replaceState(
+      {},
+      '',
+      '/?code=' + result.room.room_code
+    );
+  }
 
-    if (c) setCode(c.trim().toUpperCase());
-  }, []);
+  async function loginHost() {
+    const roomCode = code.trim().toUpperCase();
 
-  useEffect(() => {
-    if (!code) return;
+    const result = await run(() =>
+      api({
+        action: 'verify_host',
+        room_code: roomCode,
+        pin
+      })
+    );
 
-    let cancelled = false;
+    if (!result) return;
 
-    async function tick() {
-      try {
-        const next = await apiGetState(code);
+    setRoom(result.room);
+    setCode(result.room.room_code);
+    setPlayer(null);
 
-        if (!cancelled) {
-          setState(next);
-          setError('');
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setError(e.message || 'Ошибка сети');
-        }
+    saveSession({
+      room_code: result.room.room_code,
+      role: 'host',
+      host_pin: pin,
+      player_id: null
+    });
+
+    setState(await apiGetState(result.room.room_code));
+    setMode('host');
+
+    window.history.replaceState(
+      {},
+      '',
+      '/?code=' + result.room.room_code
+    );
+
+    setNotice('Вход ведущего выполнен.');
+  }
+
+  async function joinRoom(role = 'guest', nadyaPinValue = '') {
+    const roomCode = code.trim().toUpperCase();
+
+    const result = await run(() =>
+      api({
+        action: 'join',
+        room_code: roomCode,
+        display_name: name.trim(),
+        role,
+        nadya_pin: role === 'nadya' ? nadyaPinValue : undefined
+      })
+    );
+
+    if (!result) return;
+
+    setPlayer(result.player);
+    setRoom({ room_code: roomCode });
+    setMode(role === 'nadya' ? 'nadya' : 'guest');
+
+    saveSession({
+      room_code: roomCode,
+      role: role === 'nadya' ? 'nadya' : 'guest',
+      player_id: result.player.id
+    });
+
+    setState(await apiGetState(roomCode, result.player.id));
+
+    window.history.replaceState(
+      {},
+      '',
+      '/?code=' + roomCode
+    );
+  }
+
+  async function sendAnswer(optionIndex) {
+    if (!player || !state?.question || !state?.room?.voting_open) {
+      return;
+    }
+
+    const result = await run(async () => {
+      await api({
+        action: 'answer',
+        room_code: room.room_code,
+        player_id: player.id,
+        question_number: state.question.play_number,
+        selected_option: optionIndex
+      });
+
+      setState(await apiGetState(room.room_code, player.id));
+
+      return true;
+    });
+
+    if (result) {
+      setNotice('Ответ принят. Его можно изменить до фиксации.');
+    }
+  }
+
+  async function hostAction(hostActionName) {
+    const result = await run(() =>
+      api({
+        action: 'host_action',
+        host_action: hostActionName,
+        room_code: room.room_code,
+        pin
+      })
+    );
+
+    if (result) {
+      setState(await apiGetState(room.room_code));
+
+      if (hostActionName === 'lock') {
+        setNotice('Ответы зафиксированы.');
+      }
+
+      if (hostActionName === 'open') {
+        setNotice('Игра началась!');
       }
     }
-
-    tick();
-
-    const timer = setInterval(tick, POLL_INTERVAL);
-
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [code]);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setHintIndex((i) => (i + 1) % WAITING_HINTS.length);
-    }, HINT_INTERVAL);
-
-    return () => clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    if (!error) return;
-
-    const timer = setTimeout(() => {
-      window.location.reload();
-    }, 30000);
-
-    return () => clearTimeout(timer);
-  }, [error]);
-
-  useEffect(() => {
-    const lockedNow =
-      !!state?.answers_locked ||
-      (state?.room?.status === 'playing' && !state?.room?.voting_open);
-
-    const play = state?.question?.play_number;
-
-    if (
-      lockedNow &&
-      (play === 5 || play === 10) &&
-      scoresReadyAt === 0
-    ) {
-      setScoresReadyAt(Date.now() + SCORES_DELAY_MS);
-    }
-
-    if (play !== 5 && play !== 10) {
-      setScoresReadyAt(0);
-    }
-  }, [
-    state?.question?.play_number,
-    state?.answers_locked,
-    state?.room?.voting_open,
-    state?.room?.status,
-    scoresReadyAt
-  ]);
-
-  useEffect(() => {
-    if (scoresReadyAt === 0) return;
-
-    const timer = setInterval(() => setNow(Date.now()), 500);
-
-    return () => clearInterval(timer);
-  }, [scoresReadyAt]);
-
-  if (!code) {
-    return (
-      <ScreenShell>
-        <NoCodeScreen />
-      </ScreenShell>
-    );
   }
 
-  if (error && !state) {
-    return (
-      <ScreenShell>
-        <div className="state-message">
-          <h1>Что-то не так с сетью</h1>
-          <p>{error}</p>
-          <p className="muted">
-            Проверь интернет на телевизоре. Через 30 секунд
-            попробуем перезагрузить автоматически.
-          </p>
-        </div>
-      </ScreenShell>
-    );
+  function leaveRoom() {
+    clearSession();
+    setRoom(null);
+    setPlayer(null);
+    setState(null);
+    setMode('home');
+    setCode('');
+    setPin('');
+    setName('');
+    setNadyaPin('');
+    setNotice('');
+    setError('');
+    window.history.replaceState({}, '', '/');
   }
 
-  if (!state) {
-    return (
-      <ScreenShell>
-        <div className="state-message">
-          <h1>Загружаем…</h1>
-        </div>
-      </ScreenShell>
-    );
-  }
+  const question = state?.question;
+  const rawMyAnswer = state?.my_answer;
+  const myAnswer =
+    rawMyAnswer === null || rawMyAnswer === undefined
+      ? null
+      : Number(rawMyAnswer);
 
-  const room = state.room;
+  const hasAnswered =
+    !!player &&
+    myAnswer !== null &&
+    Number.isInteger(myAnswer);
 
-  if (!room) {
-    return (
-      <ScreenShell>
-        <div className="state-message">
-          <h1>Комната не найдена</h1>
-          <p className="muted">
-            Проверь код: <strong>{code}</strong>
-          </p>
-        </div>
-      </ScreenShell>
-    );
-  }
-
-  const question = state.question;
-  const playNumber = question?.play_number || room.current_question_number || 1;
-  const votingOpen = !!room.voting_open;
-  const isFinished = room.status === 'finished';
-  const isWaiting = room.status === 'waiting';
+  const playNumber =
+    question?.play_number ||
+    state?.room?.current_question_number ||
+    1;
 
   const answersLocked =
-    !!state.answers_locked ||
-    (room.status === 'playing' && !room.voting_open);
+    !!state?.answers_locked ||
+    (
+      state?.room?.status === 'playing' &&
+      !state?.room?.voting_open
+    );
 
-  const rawCorrect = answersLocked ? state.nadya_answer : null;
+  const rawCorrectAnswer = answersLocked ? state?.nadya_answer : null;
   const correctAnswer =
-    rawCorrect === null || rawCorrect === undefined
+    rawCorrectAnswer === null || rawCorrectAnswer === undefined
       ? null
-      : Number(rawCorrect);
+      : Number(rawCorrectAnswer);
 
-  const isScoresQuestion = playNumber === 5 || playNumber === 10;
+  const nadyaAnswered = !!state?.nadya_answered;
 
-  const scoresDelayPassed =
-    scoresReadyAt !== 0 && now >= scoresReadyAt;
+  const inviteUrl =
+    typeof window !== 'undefined' && room?.room_code
+      ? window.location.origin + '/?code=' + room.room_code
+      : '';
 
-  const showIntermediateScores =
-    !isFinished &&
-    answersLocked &&
-    isScoresQuestion &&
-    scoresDelayPassed;
+  const qrUrl = inviteUrl
+    ? 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' +
+      encodeURIComponent(inviteUrl)
+    : '';
 
-  const secondsLeft =
-    scoresReadyAt !== 0 && !scoresDelayPassed
-      ? Math.max(0, Math.ceil((scoresReadyAt - now) / 1000))
-      : 0;
+  const waitingForStart =
+    (mode === 'guest' || mode === 'nadya') &&
+    (!state?.room || state.room.status === 'waiting');
 
-  const scores = state.scores || [];
-  const ranked = groupByRank(scores);
+  const showRoomInfo = state?.room?.status === 'waiting';
 
-  const answeredCount = state.answered_count || 0;
-  const totalGuests = (state.players || []).filter(
-    (p) => p.role !== 'nadya'
-  ).length;
+  if (restoring) {
+    return (
+      <main className="shell">
+        <div className="panel hero">
+          <div className="hero-mark">✦</div>
+          <p className="eyebrow">ПОДКЛЮЧАЕМСЯ</p>
+          <h2>Секунду…</h2>
+          <p className="muted">Восстанавливаем вашу сессию</p>
+        </div>
+      </main>
+    );
+  }
 
   return (
-    <ScreenShell>
-      {isWaiting && (
-        <WaitingScreen
-          code={code}
-          players={state.players || []}
-          hint={WAITING_HINTS[hintIndex]}
-        />
+    <main className="shell">
+      <header className="brand">
+        <div className="sparkle">✦</div>
+
+        <div>
+          <p className="eyebrow">ПРАЗДНИЧНЫЙ КВИЗ</p>
+          <h1>
+            Надины <span>40</span>
+          </h1>
+        </div>
+      </header>
+
+      {(mode === 'guest' || mode === 'nadya') && player && (
+        <div className="player-name-bar" aria-label="Имя участника">
+          <span>Вы вошли как</span>
+          <strong>{player.display_name || name || 'Участник'}</strong>
+          <button className="leave-button" onClick={leaveRoom}>
+            Выйти
+          </button>
+        </div>
       )}
 
-      {isFinished && <FinalScreen ranked={ranked} />}
-
-      {showIntermediateScores && (
-        <IntermediateScoresScreen
-          playNumber={playNumber}
-          ranked={ranked}
-        />
+      {mode === 'host' && (
+        <div className="player-name-bar" aria-label="Панель ведущего">
+          <span>Режим</span>
+          <strong>Ведущий</strong>
+          <button className="leave-button" onClick={leaveRoom}>
+            Выйти
+          </button>
+        </div>
       )}
 
-      {!isWaiting && !isFinished && !showIntermediateScores && question && (
-        <QuestionScreen
-          key={playNumber}
-          playNumber={playNumber}
-          totalQuestions={16}
-          question={question}
-          votingOpen={votingOpen}
-          correctAnswer={correctAnswer}
-          secondsLeft={secondsLeft}
-          isScoresQuestion={isScoresQuestion}
-          answeredCount={answeredCount}
-          totalGuests={totalGuests}
-        />
+      {error && (
+        <div className="alert error">
+          {error}
+          <button
+            className="dismiss"
+            onClick={() => setError('')}
+          >
+            ×
+          </button>
+        </div>
       )}
-    </ScreenShell>
-  );
-}
 
-/* ---------------- Оболочка ---------------- */
+      {notice && (
+        <div className="alert success">
+          {notice}
+        </div>
+      )}
 
-function ScreenShell({ children }) {
-  return (
-    <>
-      <main className="tv-shell">{children}</main>
+      {mode === 'home' && (
+        <section className="panel hero">
+          <div className="hero-mark">40</div>
+
+          <p className="eyebrow">СЕГОДНЯ ВСЁ О НАДЕ</p>
+
+          <h2>Кто знает Надю лучше всех?</h2>
+
+          <p className="muted">
+            Выбирайте ответы, сравнивайте их с Надей
+            и собирайте баллы.
+          </p>
+
+          <div className="actions">
+            <button
+              className="primary"
+              onClick={() => setMode('create')}
+            >
+              Создать игру · ведущий
+            </button>
+
+            <button
+              className="secondary"
+              onClick={() => setMode('join')}
+            >
+              Войти в игру
+            </button>
+          </div>
+        </section>
+      )}
+
+      {mode === 'create' && (
+        <section className="panel form-panel">
+          <button
+            className="back"
+            onClick={() => setMode('home')}
+          >
+            ← Назад
+          </button>
+
+          <p className="eyebrow">ДЛЯ ВЕДУЩЕГО</p>
+          <h2>Создать комнату</h2>
+
+          <p className="muted">
+            Введи секретный PIN ведущего из настроек Vercel.
+          </p>
+
+          <label>
+            PIN ведущего
+            <input
+              value={pin}
+              onChange={(e) => setPin(e.target.value)}
+              type="password"
+              placeholder="Секретный PIN"
+              autoComplete="current-password"
+            />
+          </label>
+
+          <button
+            className="primary full"
+            disabled={busy || !pin}
+            onClick={createRoom}
+          >
+            {busy ? 'Создаём…' : 'Создать комнату'}
+          </button>
+
+          <button
+            className="text-button full"
+            onClick={() => {
+              setError('');
+              setMode('host-login');
+            }}
+          >
+            Войти в существующую комнату
+          </button>
+        </section>
+      )}
+
+      {mode === 'join' && (
+        <section className="panel form-panel">
+          <button
+            className="back"
+            onClick={() => setMode('home')}
+          >
+            ← Назад
+          </button>
+
+          <p className="eyebrow">ПОДКЛЮЧЕНИЕ</p>
+          <h2>Войти в игру</h2>
+
+          <label>
+            Код комнаты
+            <input
+              value={code}
+              onChange={(e) =>
+                setCode(e.target.value.toUpperCase())
+              }
+              placeholder="Например, H7QF7B"
+              maxLength={6}
+            />
+          </label>
+
+          <label>
+            Как тебя зовут?
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Имя для таблицы результатов"
+              maxLength={40}
+            />
+          </label>
+
+          <button
+            className="primary full"
+            disabled={busy || !code.trim() || !name.trim()}
+            onClick={() => joinRoom('guest')}
+          >
+            {busy ? 'Подключаем…' : 'Войти как участник'}
+          </button>
+
+          <button
+            className="text-button full"
+            disabled={busy || !code.trim() || !name.trim()}
+            onClick={() => {
+              setError('');
+              setNadyaPin('');
+              setMode('nadya-pin');
+            }}
+          >
+            Я Надя — отвечать за именинницу
+          </button>
+
+          <button
+            className="text-button full"
+            onClick={() => {
+              setError('');
+              setMode('host-login');
+            }}
+          >
+            Я ведущий
+          </button>
+        </section>
+      )}
+
+      {mode === 'nadya-pin' && (
+        <section className="panel form-panel">
+          <button
+            className="back"
+            onClick={() => setMode('join')}
+          >
+            ← Назад
+          </button>
+
+          <p className="eyebrow">ВХОД ДЛЯ ИМЕНИННИЦЫ</p>
+          <h2>Только для Нади</h2>
+
+          <p className="muted">
+            Введи секретный PIN именинницы.
+          </p>
+
+          <label>
+            PIN именинницы
+            <input
+              value={nadyaPin}
+              onChange={(e) =>
+                setNadyaPin(e.target.value.replace(/\D/g, '').slice(0, 4))
+              }
+              type="password"
+              inputMode="numeric"
+              placeholder="4 цифры"
+              maxLength={4}
+              autoComplete="off"
+            />
+          </label>
+
+          <button
+            className="primary full"
+            disabled={busy || nadyaPin.length !== 4}
+            onClick={() => joinRoom('nadya', nadyaPin)}
+          >
+            {busy ? 'Проверяем…' : 'Войти как Надя'}
+          </button>
+        </section>
+      )}
+
+      {mode === 'host-login' && (
+        <section className="panel form-panel">
+          <button
+            className="back"
+            onClick={() => setMode('home')}
+          >
+            ← Назад
+          </button>
+
+          <p className="eyebrow">ДЛЯ ВЕДУЩЕГО</p>
+          <h2>Войти в существующую комнату</h2>
+
+          <p className="muted">
+            Введи код комнаты и PIN ведущего.
+            Новая комната не создаётся.
+          </p>
+
+          <label>
+            Код комнаты
+            <input
+              value={code}
+              onChange={(e) =>
+                setCode(e.target.value.toUpperCase())
+              }
+              placeholder="Например, H7QF7B"
+              maxLength={6}
+              autoComplete="off"
+            />
+          </label>
+
+          <label>
+            PIN ведущего
+            <input
+              value={pin}
+              onChange={(e) => setPin(e.target.value)}
+              type="password"
+              placeholder="Секретный PIN"
+              autoComplete="current-password"
+            />
+          </label>
+
+          <button
+            className="primary full"
+            disabled={
+              busy ||
+              code.trim().length !== 6 ||
+              !pin
+            }
+            onClick={loginHost}
+          >
+            {busy ? 'Проверяем…' : 'Войти как ведущий'}
+          </button>
+        </section>
+      )}
+
+      {['host', 'guest', 'nadya'].includes(mode) && (
+        <>
+          {showRoomInfo && (
+            <section className="panel room-head">
+              <div>
+                <p className="eyebrow">КОМНАТА</p>
+
+                <h2 className="room-code">
+                  {room?.room_code || code}
+                </h2>
+
+                <p className="muted">
+                  {state?.players?.length || 0} участников
+                </p>
+              </div>
+
+              {mode === 'host' && (
+                <div className="qr">
+                  <img
+                    src={qrUrl}
+                    alt="QR-код для входа в игру"
+                  />
+                  <span>Сканируй, чтобы войти</span>
+                </div>
+              )}
+            </section>
+          )}
+
+          {mode === 'host' && (
+            <section className="panel host-panel">
+              <p className="eyebrow">ПАНЕЛЬ ВЕДУЩЕГО</p>
+
+              <h2>
+                {state?.room?.status === 'finished'
+                  ? 'Игра завершена 🎉'
+                  : state?.room?.status === 'waiting'
+                    ? 'Готовы начинать?'
+                    : `Вопрос ${playNumber} из 16 · ${
+                        state?.room?.voting_open
+                          ? 'голосование открыто'
+                          : 'ответы зафиксированы'
+                      }`}
+              </h2>
+
+              <p className="muted">
+                {state?.room?.status === 'waiting'
+                  ? 'Когда все гости подключатся, начинай игру.'
+                  : state?.room?.status === 'finished'
+                    ? 'Ниже — окончательный рейтинг участников.'
+                    : (
+                        <>
+                          Ответили: {state?.answered_count || 0}
+                          {' из '}
+                          {(state?.players || []).filter(
+                            (p) => p.role !== 'nadya'
+                          ).length}
+                          {' участников.'}
+                        </>
+                      )}
+              </p>
+
+              <div className="actions wrap">
+                {state?.room?.status === 'waiting' && (
+                  <button
+                    className="primary"
+                    disabled={busy}
+                    onClick={() => hostAction('open')}
+                  >
+                    Начать игру
+                  </button>
+                )}
+
+                {state?.room?.status === 'playing' &&
+                  state?.room?.voting_open && (
+                    <button
+                      className="primary"
+                      disabled={busy || !nadyaAnswered}
+                      onClick={() => hostAction('lock')}
+                    >
+                      {nadyaAnswered
+                        ? 'Зафиксировать ответы'
+                        : 'Ждём ответ Нади…'}
+                    </button>
+                  )}
+
+                {state?.room?.status === 'playing' &&
+                  !state?.room?.voting_open && (
+                    <button
+                      className="primary"
+                      disabled={busy}
+                      onClick={() => hostAction('next')}
+                    >
+                      {playNumber >= 16
+                        ? 'Завершить и показать результаты'
+                        : 'Следующий вопрос →'}
+                    </button>
+                  )}
+
+                {state?.room?.status !== 'finished' && (
+                  <button
+                    className="danger"
+                    disabled={busy}
+                    onClick={() => hostAction('finish')}
+                  >
+                    Завершить игру досрочно
+                  </button>
+                )}
+              </div>
+
+              {state?.room?.status === 'playing' &&
+                state?.room?.voting_open &&
+                !nadyaAnswered && (
+                  <p className="muted small">
+                    Надя ещё не выбрала ответ. Как только она ответит,
+                    кнопка фиксации станет активной.
+                  </p>
+                )}
+            </section>
+          )}
+
+          {waitingForStart && (
+            <section className="panel hero waiting-panel">
+              <div className="hero-mark">✦</div>
+
+              <p className="eyebrow">ТЫ В КОМНАТЕ!</p>
+
+              <h2>Ждём начала игры 🎉</h2>
+
+              <p className="muted">
+                Когда ведущий начнёт игру, первый вопрос
+                появится здесь автоматически.
+              </p>
+
+              <div className="waiting-indicator">
+                <span>●</span> Ожидаем ведущего
+              </div>
+            </section>
+          )}
+
+          {question &&
+            state?.room?.status !== 'waiting' &&
+            state?.room?.status !== 'finished' && (
+              <section className="panel question-panel">
+                <div className="question-top">
+                  <span className="pill">
+                    ВОПРОС {playNumber} / 16
+                  </span>
+
+                  <span
+                    className={
+                      'status ' +
+                      (state?.room?.voting_open ? 'live' : '')
+                    }
+                  >
+                    {state?.room?.voting_open
+                      ? '● Идёт голосование'
+                      : 'Ответы зафиксированы'}
+                  </span>
+                </div>
+
+                <h2>{question.question_text}</h2>
+
+                <div className="options">
+                  {question.options.map((option, index) => {
+                    const isCorrect = correctAnswer === index;
+
+                    const isMyWrong =
+                      answersLocked &&
+                      hasAnswered &&
+                      myAnswer === index &&
+                      myAnswer !== correctAnswer;
+
+                    const classes = [
+                      'option',
+                      hasAnswered && myAnswer === index ? 'selected' : '',
+                      isCorrect ? 'correct' : '',
+                      isMyWrong ? 'incorrect' : ''
+                    ]
+                      .filter(Boolean)
+                      .join(' ');
+
+                    return (
+                      <button
+                        key={index}
+                        className={classes}
+                        disabled={
+                          mode === 'host' ||
+                          !state?.room?.voting_open ||
+                          state?.room?.status !== 'playing'
+                        }
+                        onClick={() => sendAnswer(index)}
+                      >
+                        <span className="option-letter">
+                          {String.fromCharCode(65 + index)}
+                        </span>
+
+                        <span>{option}</span>
+
+                        {hasAnswered && myAnswer === index && (
+                          <span className="check">✓</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {mode !== 'host' && (
+                  <p className="muted small">
+                    {state?.room?.voting_open
+                      ? hasAnswered
+                        ? mode === 'nadya'
+                          ? 'Твой ответ принят. Как только ты выберешь, ведущий сможет зафиксировать ответы.'
+                          : 'Твой ответ принят. Его можно изменить до фиксации.'
+                        : mode === 'nadya'
+                          ? 'Выбери вариант — от твоего ответа зависит, когда ведущий сможет зафиксировать ответы.'
+                          : 'Выбери вариант ответа.'
+                      : 'Ответы зафиксированы.'}
+                  </p>
+                )}
+
+                {correctAnswer !== null &&
+                  correctAnswer !== undefined && (
+                    <div className="reveal">
+                      <span className="eyebrow">ОТВЕТ НАДИ</span>
+
+                      <strong>
+                        {String.fromCharCode(65 + correctAnswer)}
+                        {' · '}
+                        {question.options[correctAnswer]}
+                      </strong>
+                    </div>
+                  )}
+              </section>
+            )}
+
+          {mode === 'host' &&
+            state?.room?.status === 'waiting' && (
+              <section className="panel">
+                <p className="eyebrow">ГОСТИ В КОМНАТЕ</p>
+
+                <div className="player-list">
+                  {(state?.players || []).map((p) => (
+                    <div className="player-row" key={p.id}>
+                      <span className="avatar">
+                        {p.display_name.slice(0, 1).toUpperCase()}
+                      </span>
+
+                      <span>{p.display_name}</span>
+
+                      <span className="muted small">
+                        {p.role === 'nadya'
+                          ? 'Именинница'
+                          : 'Участник'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+          {state?.show_scores && (
+            <section
+              className={
+                'panel scores-panel ' +
+                (state?.room?.status === 'finished'
+                  ? 'final-scores'
+                  : '')
+              }
+            >
+              {state?.room?.status === 'finished' ? (
+                <>
+                  <div className="confetti" aria-hidden="true">
+                    {Array.from({ length: 36 }, (_, i) => (
+                      <span
+                        key={i}
+                        style={{ '--i': i }}
+                      >
+                        {['✦', '✧', '🎉', '★'][i % 4]}
+                      </span>
+                    ))}
+                  </div>
+
+                  <p className="eyebrow">
+                    🎉 ВИКТОРИНА ЗАВЕРШЕНА 🎉
+                  </p>
+
+                  <h2>Кто знает Надю лучше всех?</h2>
+
+                  <p className="muted">
+                    Спасибо всем за игру и поздравления имениннице!
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="eyebrow">ТЕКУЩИЙ РЕЙТИНГ</p>
+                  <h2>Кто впереди?</h2>
+                </>
+              )}
+
+              <div className="scores">
+                {(state?.scores || []).map((s, i) => (
+                  <div className="score-row" key={s.player_id}>
+                    <span className="rank">
+                      {i === 0
+                        ? '🏆'
+                        : state?.room?.status === 'finished' && i === 1
+                          ? '🥈'
+                          : state?.room?.status === 'finished' && i === 2
+                            ? '🥉'
+                            : i + 1}
+                    </span>
+
+                    <strong>{s.display_name}</strong>
+
+                    <span className="points">
+                      {s.points}{' '}
+                      {s.points === 1
+                        ? 'балл'
+                        : s.points > 1 && s.points < 5
+                          ? 'балла'
+                          : 'баллов'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              {state?.room?.status === 'finished' &&
+                state?.scores?.length > 0 && (
+                  <div className="winner-message">
+                    🥳 Победитель:{' '}
+                    <strong>{state.scores[0].display_name}</strong>!
+                  </div>
+                )}
+            </section>
+          )}
+        </>
+      )}
+
       <style jsx global>{`
         * {
           box-sizing: border-box;
         }
 
-        html,
         body {
           margin: 0;
-          padding: 0;
           background: #fff9f0;
           color: #30251f;
           font-family: Arial, Helvetica, sans-serif;
-          overflow: hidden;
         }
 
-        .tv-shell {
-          width: 100vw;
-          height: 100vh;
+        button,
+        input {
+          font: inherit;
+        }
+
+        button {
+          cursor: pointer;
+        }
+
+        button:disabled {
+          cursor: not-allowed;
+          opacity: 0.6;
+        }
+
+        .shell {
+          width: min(760px, 100%);
+          margin: 0 auto;
+          padding: 24px 18px 36px;
+        }
+
+        .brand {
           display: flex;
           align-items: center;
-          justify-content: center;
-          padding: 3vh 3vw;
-          background:
-            radial-gradient(circle at 50% 0%, #fff4d8 0%, #fff9f0 55%, #fff9f0 100%);
+          gap: 14px;
+          margin: 0 0 24px;
         }
 
-        .state-message {
-          text-align: center;
+        .sparkle {
+          display: grid;
+          place-items: center;
+          width: 52px;
+          height: 52px;
+          border-radius: 16px;
+          background: #f7dfaa;
+          color: #81531a;
+          font-size: 30px;
         }
 
-        .state-message h1 {
-          margin: 0 0 1.2rem;
-          font-size: clamp(2rem, 4vw, 3.4rem);
-          color: #7a4a12;
+        .brand h1 {
+          margin: 0;
+          font-size: clamp(28px, 6vw, 38px);
+          letter-spacing: -1px;
         }
 
-        .state-message p {
-          margin: 0.4rem 0;
-          font-size: clamp(1rem, 1.6vw, 1.4rem);
+        .brand h1 span {
+          color: #b77925;
+        }
+
+        .player-name-bar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          margin: -8px 0 20px;
+          padding: 12px 16px;
+          border: 1px solid #ead8bb;
+          border-radius: 14px;
+          background: #fffaf1;
+          color: #78572d;
+        }
+
+        .player-name-bar span {
+          font-size: 13px;
+        }
+
+        .player-name-bar strong {
+          color: #382b1b;
+          font-size: 16px;
+          overflow-wrap: anywhere;
+          text-align: right;
+          flex: 1;
+        }
+
+        .leave-button {
+          padding: 6px 12px;
+          border: 1px solid #ead8bb;
+          border-radius: 10px;
+          background: #fff;
+          color: #9b713b;
+          font-size: 12px;
+          font-weight: 700;
+        }
+
+        .leave-button:hover {
+          background: #fff4df;
+        }
+
+        .eyebrow {
+          margin: 0 0 8px;
+          color: #9b713b;
+          font-size: 11px;
+          font-weight: 800;
+          letter-spacing: 1.5px;
+        }
+
+        .panel {
+          position: relative;
+          margin-bottom: 16px;
+          padding: 24px;
+          border: 1px solid #eee0cc;
+          border-radius: 22px;
+          background: #fff;
+          box-shadow: 0 8px 28px rgb(83 57 23 / 5%);
+        }
+
+        .panel h2 {
+          margin: 0 0 12px;
+          font-size: clamp(22px, 5vw, 30px);
+          line-height: 1.2;
+          letter-spacing: -0.5px;
         }
 
         .muted {
           color: #786f66;
+          line-height: 1.5;
         }
 
-        .eyebrow {
-          margin: 0 0 0.6rem;
-          color: #9b713b;
-          font-size: clamp(0.75rem, 1vw, 1rem);
-          font-weight: 800;
-          letter-spacing: 0.15em;
+        .small {
+          font-size: 13px;
         }
 
-        .card {
-          width: min(92vw, 1400px);
-          padding: 4vh 5vw;
-          border: 1px solid #eee0cc;
-          border-radius: 36px;
-          background: #ffffff;
-          box-shadow: 0 20px 60px rgb(83 57 23 / 8%);
+        .hero {
           text-align: center;
-          animation: cardIn 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.1) both;
+          padding: 36px 24px;
         }
 
-        /* ОЖИДАНИЕ */
-        .waiting {
+        .hero-mark {
           display: grid;
-          grid-template-columns: 1.2fr 1fr;
-          gap: 5vw;
-          align-items: center;
-          text-align: left;
-        }
-
-        .waiting-left h1 {
-          margin: 0;
-          font-size: clamp(2.4rem, 6vw, 5.4rem);
-          line-height: 1.05;
-          letter-spacing: -0.02em;
-          color: #3b2a17;
-        }
-
-        .waiting-left h1 span {
-          color: #b77925;
-        }
-
-        .waiting-left .tagline {
-          margin: 1.5rem 0 0;
-          font-size: clamp(1.1rem, 2vw, 1.8rem);
-          color: #786f66;
-        }
-
-        .waiting-hint {
-          margin-top: 3rem;
-          padding: 1.2rem 1.6rem;
-          border-radius: 20px;
+          place-items: center;
+          width: 104px;
+          height: 104px;
+          margin: 0 auto 24px;
+          border: 5px solid #f5d89d;
+          border-radius: 50%;
           background: #fff4d8;
-          color: #7a4a12;
-          font-size: clamp(1.1rem, 2vw, 1.6rem);
-          font-weight: 700;
-          transition: opacity 0.4s ease;
-          min-height: 4rem;
+          color: #a66c1b;
+          font-size: 46px;
+          font-weight: 900;
         }
 
-        .waiting-right {
+        .actions {
           display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 1.4rem;
+          justify-content: center;
+          gap: 10px;
+          margin-top: 24px;
         }
 
-        .room-label {
-          margin: 0;
-          color: #9b713b;
-          font-size: clamp(0.8rem, 1.1vw, 1rem);
-          font-weight: 800;
-          letter-spacing: 0.15em;
+        .actions.wrap {
+          flex-wrap: wrap;
+        }
+
+        .primary,
+        .secondary,
+        .danger {
+          min-height: 48px;
+          padding: 13px 18px;
+          border: 0;
+          border-radius: 13px;
+          font-weight: 750;
+          transition: transform 0.15s ease, opacity 0.15s ease;
+        }
+
+        .primary {
+          background: #a86e25;
+          color: #fff;
+        }
+
+        .secondary {
+          border: 1px solid #e6d6be;
+          background: #fff9ef;
+          color: #65451f;
+        }
+
+        .danger {
+          border: 1px solid #f0c5c5;
+          background: #fff0f0;
+          color: #a12626;
+        }
+
+        .primary:hover,
+        .secondary:hover,
+        .danger:hover {
+          transform: translateY(-1px);
+        }
+
+        .full {
+          width: 100%;
+          margin-top: 12px;
+        }
+
+        .form-panel {
+          max-width: 520px;
+          margin-right: auto;
+          margin-left: auto;
+        }
+
+        .form-panel label {
+          display: block;
+          margin-top: 18px;
+          color: #55463a;
+          font-size: 14px;
+          font-weight: 700;
+        }
+
+        .form-panel input {
+          display: block;
+          width: 100%;
+          min-height: 48px;
+          margin-top: 8px;
+          padding: 12px 14px;
+          border: 1px solid #ded0be;
+          border-radius: 12px;
+          outline: none;
+          background: #fffdf9;
+          color: #30251f;
+        }
+
+        .form-panel input:focus {
+          border-color: #b9823b;
+          box-shadow: 0 0 0 3px rgb(185 130 59 / 13%);
+        }
+
+        .back,
+        .text-button {
+          padding: 8px 0;
+          border: 0;
+          background: transparent;
+          color: #916329;
+          font-weight: 700;
+        }
+
+        .back {
+          margin-bottom: 18px;
+        }
+
+        .room-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 18px;
         }
 
         .room-code {
           margin: 0;
-          font-size: clamp(2.6rem, 5vw, 5rem);
-          letter-spacing: 0.18em;
-          color: #7a4a12;
+          font-size: 32px;
+          letter-spacing: 4px;
         }
 
-        .qr-wrap {
-          padding: 1.4rem;
-          border-radius: 24px;
-          background: #fffdf7;
-          border: 1px solid #ead8bb;
-        }
-
-        .qr-wrap img {
-          display: block;
-          width: clamp(180px, 20vw, 320px);
-          height: clamp(180px, 20vw, 320px);
-        }
-
-        .join-instruction {
-          margin: 0;
+        .qr {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 6px;
           color: #786f66;
-          font-size: clamp(0.9rem, 1.2vw, 1.15rem);
+          font-size: 11px;
           text-align: center;
         }
 
-        .join-instruction strong {
-          color: #7a4a12;
+        .qr img {
+          display: block;
+          width: 112px;
+          height: 112px;
+          border-radius: 10px;
         }
 
-        .player-counter {
-          margin-top: 0.5rem;
-          padding: 0.7rem 1.2rem;
-          border-radius: 999px;
-          background: #f0fbf2;
-          color: #246b39;
-          font-size: clamp(1rem, 1.4vw, 1.3rem);
-          font-weight: 700;
+        .host-panel {
+          border-color: #e5cfaa;
+          background: #fffdf8;
         }
 
-        /* ВОПРОС */
-        .progress-bar {
-          height: 6px;
-          background: #f0e3cb;
-          border-radius: 999px;
-          overflow: hidden;
-          margin-bottom: 2rem;
+        .waiting-panel {
+          padding-top: 32px;
+          padding-bottom: 32px;
         }
 
-        .progress-fill {
-          height: 100%;
-          background: linear-gradient(90deg, #b77925, #f4c95d);
-          border-radius: 999px;
-          transition: width 0.6s ease-out;
+        .waiting-indicator {
+          margin-top: 24px;
+          color: #8a765f;
+          font-size: 13px;
         }
 
-        .q-top {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 2rem;
-          flex-wrap: wrap;
-          gap: 1rem;
-        }
-
-        .q-pill {
-          padding: 0.8rem 1.3rem;
-          border-radius: 999px;
-          background: #fff0d5;
-          color: #895719;
-          font-size: clamp(0.85rem, 1.2vw, 1.1rem);
-          font-weight: 850;
-          letter-spacing: 0.1em;
-        }
-
-        .q-status {
-          color: #24814a;
-          font-size: clamp(0.85rem, 1.2vw, 1.1rem);
-          font-weight: 700;
-        }
-
-        .q-status.locked {
-          color: #9b713b;
-        }
-
-        .q-text {
-          margin: 0 0 3rem;
-          font-size: clamp(1.6rem, 3.4vw, 3.2rem);
-          line-height: 1.25;
-          color: #2c1f12;
-        }
-
-        .q-options {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 1.4rem;
-        }
-
-        .q-option {
-          display: flex;
-          align-items: center;
-          gap: 1.2rem;
-          padding: 1.6rem 1.8rem;
-          border: 2px solid #e8dfd3;
-          border-radius: 22px;
-          background: #fffdfa;
-          font-size: clamp(1rem, 1.6vw, 1.5rem);
-          color: #352c25;
-          text-align: left;
-          transition: all 0.3s ease;
-        }
-
-        .q-option-letter {
-          display: grid;
-          place-items: center;
-          flex: 0 0 auto;
-          width: clamp(40px, 3vw, 60px);
-          height: clamp(40px, 3vw, 60px);
-          border-radius: 16px;
-          background: #f5ead8;
-          color: #8b5e27;
-          font-weight: 850;
-          font-size: clamp(1rem, 1.4vw, 1.3rem);
-        }
-
-        .q-option.correct {
-          border-color: #239653;
-          background: #d9f8e3;
-          color: #14532d;
-          font-weight: 700;
-          animation: correctPulse 0.7s ease-out both;
-        }
-
-        .q-option.dim {
-          opacity: 0.55;
-        }
-
-        .reveal-badge {
-          margin-top: 2.4rem;
-          padding: 1.2rem 1.6rem;
-          border-radius: 20px;
-          background: #effbf2;
-          border: 1px solid #a6d9b5;
-          color: #14532d;
-          font-size: clamp(1rem, 1.5vw, 1.4rem);
-          animation: revealIn 0.5s ease-out both;
-        }
-
-        .reveal-badge strong {
-          color: #0f3d22;
-        }
-
-        .voting-pulse {
-          margin-top: 2rem;
-          color: #8b7e70;
-          font-size: clamp(0.95rem, 1.3vw, 1.2rem);
-        }
-
-        .voting-pulse span {
-          display: inline-block;
-          margin-right: 0.6rem;
-          color: #24814a;
+        .waiting-indicator span {
+          margin-right: 7px;
+          color: #d39b45;
           animation: pulse 1.4s ease-in-out infinite;
         }
 
-        .scores-countdown {
-          margin-top: 1.5rem;
+        .question-panel h2 {
+          margin-top: 22px;
+          margin-bottom: 24px;
+          font-size: clamp(23px, 5vw, 32px);
+          line-height: 1.3;
+        }
+
+        .question-top {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          flex-wrap: wrap;
+          gap: 10px;
+        }
+
+        .pill {
+          padding: 8px 11px;
+          border-radius: 100px;
+          background: #fff0d5;
           color: #895719;
-          font-size: clamp(0.95rem, 1.3vw, 1.2rem);
+          font-size: 11px;
+          font-weight: 850;
+          letter-spacing: 0.5px;
+        }
+
+        .status {
+          color: #8b7e70;
+          font-size: 12px;
+        }
+
+        .status.live {
+          color: #24814a;
+          font-weight: 750;
+        }
+
+        .options {
+          display: grid;
+          gap: 11px;
+        }
+
+        .option {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          width: 100%;
+          min-height: 60px;
+          padding: 13px 15px;
+          border: 1px solid #e8dfd3;
+          border-radius: 14px;
+          background: #fffdfa;
+          color: #352c25;
+          text-align: left;
+          transition: background 0.15s ease, border 0.15s ease;
+        }
+
+        .option:not(:disabled):hover {
+          border-color: #c69a5d;
+          background: #fff7e8;
+        }
+
+        .option.selected {
+          border-color: #c18b40;
+          background: #fff4df;
+        }
+
+        .option-letter {
+          display: grid;
+          flex: 0 0 32px;
+          place-items: center;
+          width: 32px;
+          height: 32px;
+          border-radius: 10px;
+          background: #f5ead8;
+          color: #8b5e27;
+          font-size: 13px;
+          font-weight: 850;
+        }
+
+        .check {
+          margin-left: auto;
+          color: #8b5e27;
+          font-weight: 900;
+        }
+
+        .option.correct {
+          border-color: #239653 !important;
+          background: #d9f8e3 !important;
+          color: #14532d !important;
           font-weight: 700;
         }
 
-        /* ПРОМЕЖУТОЧНЫЙ РЕЙТИНГ */
-        .scores-title {
-          margin: 0 0 0.5rem;
-          font-size: clamp(1.4rem, 2.6vw, 2.4rem);
-          color: #7a4a12;
+        .option.incorrect {
+          border-color: #dc2626 !important;
+          background: #ffe0e0 !important;
+          color: #991b1b !important;
+          font-weight: 700;
         }
 
-        .scores-sub {
-          margin: 0 0 2rem;
-          color: #786f66;
-          font-size: clamp(0.95rem, 1.4vw, 1.2rem);
-        }
-
-        .scores-list {
+        .reveal {
           display: grid;
-          gap: 1rem;
-          max-width: 960px;
-          margin: 0 auto;
+          gap: 8px;
+          margin-top: 22px;
+          padding: 16px;
+          border: 1px solid #a6d9b5;
+          border-radius: 14px;
+          background: #effbf2;
+          color: #14532d;
         }
 
-        .score-item {
+        .reveal .eyebrow {
+          margin: 0;
+          color: #287744;
+        }
+
+        .player-list {
+          display: grid;
+          gap: 12px;
+        }
+
+        .player-row {
           display: flex;
           align-items: center;
-          gap: 1.4rem;
-          padding: 1.2rem 1.6rem;
-          border: 2px solid #eee4d5;
-          border-radius: 22px;
-          background: #fffdf9;
-          font-size: clamp(1.05rem, 1.7vw, 1.5rem);
-          animation: scoreDrop 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+          gap: 10px;
         }
 
-        .score-item.first {
+        .avatar {
+          display: grid;
+          flex: 0 0 34px;
+          place-items: center;
+          width: 34px;
+          height: 34px;
+          border-radius: 50%;
+          background: #f8ead2;
+          color: #885b26;
+          font-weight: 800;
+        }
+
+        .player-row .muted {
+          margin-left: auto;
+        }
+
+        .scores-panel {
+          position: relative;
+          overflow: hidden;
+        }
+
+        .scores {
+          display: grid;
+          gap: 9px;
+          margin-top: 18px;
+        }
+
+        .score-row {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          min-height: 52px;
+          padding: 10px 13px;
+          border: 1px solid #eee4d5;
+          border-radius: 13px;
+          background: #fffdf9;
+        }
+
+        .rank {
+          display: grid;
+          flex: 0 0 30px;
+          place-items: center;
+          width: 30px;
+          font-size: 19px;
+          font-weight: 800;
+        }
+
+        .score-row strong {
+          min-width: 0;
+          overflow-wrap: anywhere;
+        }
+
+        .points {
+          margin-left: auto;
+          white-space: nowrap;
+          color: #8a5c22;
+          font-size: 13px;
+          font-weight: 800;
+        }
+
+        .final-scores {
+          border: 2px solid #f4c95d;
+          text-align: center;
+          animation: finalAppear 0.7s ease-out both;
+        }
+
+        .final-scores .scores {
+          text-align: left;
+          margin-top: 24px;
+        }
+
+        .final-scores .score-row:first-child {
           border-color: #f4c95d;
           background: #fff3c4;
+          transform: scale(1.02);
         }
 
-        .score-rank {
-          font-size: clamp(1.5rem, 2.3vw, 2.1rem);
-          font-weight: 800;
-          width: 2.8rem;
-          text-align: center;
-          flex: 0 0 auto;
-        }
-
-        .score-names {
-          flex: 1;
-          font-weight: 800;
-          color: #2c1f12;
-          text-align: left;
-          overflow-wrap: anywhere;
-        }
-
-        .score-names .sep {
-          color: #9b713b;
-          font-weight: 600;
-          margin: 0 0.4rem;
-        }
-
-        .score-points {
-          color: #8a5c22;
-          font-weight: 800;
-          white-space: nowrap;
-        }
-
-        /* ФИНАЛ */
-        .final-wrap {
-          position: relative;
-          width: min(94vw, 1500px);
-          height: 94vh;
-          display: flex;
-          flex-direction: column;
-          justify-content: space-between;
-          padding: 3.5vh 4vw;
-          border-radius: 44px;
-          background:
-            radial-gradient(circle at 20% 0%, #fff7e0 0%, transparent 45%),
-            radial-gradient(circle at 80% 100%, #ffe9c2 0%, transparent 50%),
-            linear-gradient(160deg, #ffffff 0%, #fffdf7 55%, #fff5df 100%);
-          box-shadow:
-            0 30px 90px rgb(122 74 18 / 18%),
-            0 0 0 1px #f4d9a0 inset,
-            0 0 0 6px #fff7e0 inset;
-          text-align: center;
-          overflow: hidden;
-          animation: finalAppear 0.9s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
-        }
-
-        .final-header {
-          margin: 0;
-        }
-
-        .final-eyebrow {
-          display: inline-block;
-          margin: 0 0 0.8rem;
-          padding: 0.5rem 1.2rem;
-          border-radius: 999px;
-          background: linear-gradient(135deg, #ffe9b8, #ffd27a);
-          color: #7a4a12;
-          font-size: clamp(0.75rem, 1vw, 0.95rem);
-          font-weight: 850;
-          letter-spacing: 0.2em;
-          box-shadow: 0 6px 20px rgb(244 201 93 / 35%);
-        }
-
-        .final-h2 {
-          margin: 0;
-          font-size: clamp(1.4rem, 2.6vw, 2.4rem);
-          line-height: 1.1;
-          color: #7a4a12;
-        }
-
-        .final-top {
-          display: flex;
-          flex-direction: column;
-          justify-content: center;
-          gap: 0.9vh;
-          max-width: 1100px;
-          margin: 1.5vh auto;
-          width: 100%;
-        }
-
-        .podium-item {
-          display: flex;
-          align-items: center;
-          gap: 1.2rem;
-          padding: 1.2vh 1.6vw;
-          border-radius: 20px;
-          background: #fffefb;
-          border: 2px solid #f0e3cb;
-          text-align: left;
-          box-shadow: 0 8px 24px rgb(122 74 18 / 6%);
-        }
-
-        .podium-item.gold {
-          position: relative;
-          background:
-            linear-gradient(#fffefb, #fffefb) padding-box,
-            linear-gradient(135deg, #f4c95d, #ffb347, #f4c95d) border-box;
-          border: 3px solid transparent;
-          box-shadow:
-            0 14px 40px rgb(244 201 93 / 40%),
-            0 0 0 1px #fff3c4 inset;
-        }
-
-        .podium-item.gold::before {
-          content: '';
-          position: absolute;
-          inset: -8px;
-          border-radius: 28px;
-          background: radial-gradient(circle, rgb(244 201 93 / 25), transparent 70%);
-          z-index: -1;
-          animation: goldGlow 2.6s ease-in-out infinite;
-        }
-
-        .podium-item.silver {
-          border-color: #d8dde3;
-          background: linear-gradient(135deg, #ffffff, #f4f6f8);
-        }
-
-        .podium-item.bronze {
-          border-color: #e8c9a8;
-          background: linear-gradient(135deg, #fffaf3, #fbeedb);
-        }
-
-        .podium-medal {
-          font-size: clamp(1.4rem, 2.2vw, 2.2rem);
-          flex: 0 0 auto;
-          filter: drop-shadow(0 4px 10px rgb(122 74 18 / 25%));
-        }
-
-        .podium-names {
-          flex: 1;
-          font-weight: 850;
-          font-size: clamp(0.95rem, 1.5vw, 1.35rem);
-          color: #2c1f12;
-          overflow-wrap: anywhere;
-          line-height: 1.2;
-        }
-
-        .podium-names .sep {
-          color: #c18b40;
-          font-weight: 600;
-          margin: 0 0.5rem;
-        }
-
-        .podium-points {
-          color: #8a5c22;
-          font-size: clamp(0.85rem, 1.2vw, 1.05rem);
-          font-weight: 850;
-          white-space: nowrap;
-          padding: 0.4rem 0.9rem;
-          border-radius: 999px;
+        .winner-message {
+          margin-top: 24px;
+          padding: 18px;
+          border-radius: 16px;
           background: #fff3c4;
+          color: #754b00;
+          font-size: 1.15rem;
         }
-
-        .podium-item.gold .podium-points {
-          background: linear-gradient(135deg, #ffe9b8, #f4c95d);
-          color: #5a3508;
-          box-shadow: 0 4px 14px rgb(244 201 93 / 40%);
-        }
-
-        .final-congrats {
-          position: relative;
-          margin: 0 auto;
-          max-width: 900px;
-          width: 100%;
-          padding: 2.5vh 2vw;
-          border-radius: 28px;
-          background:
-            radial-gradient(circle at 50% 0%, #fff7e0 0%, transparent 60%),
-            linear-gradient(160deg, #fffefb, #fff6e0);
-          border: 2px solid #f4d9a0;
-          box-shadow: 0 20px 60px rgb(122 74 18 / 10%);
-        }
-
-        .final-congrats-eyebrow {
-          margin: 0 0 0.6rem;
-          color: #b77925;
-          font-size: clamp(0.7rem, 0.95vw, 0.85rem);
-          font-weight: 850;
-          letter-spacing: 0.22em;
-        }
-
-        .final-congrats-text {
-          margin: 0 0 0.6rem;
-          font-size: clamp(1.6rem, 3vw, 2.6rem);
-          line-height: 1.1;
-          font-weight: 900;
-          letter-spacing: -0.01em;
-          color: #7a4a12;
-        }
-
-        .final-congrats-text span {
-          display: inline-block;
-          color: #b77925;
-          animation: nameFloat 3.2s ease-in-out infinite;
-        }
-
-        .final-congrats-sub {
-          margin: 0;
-          color: #8a5c22;
-          font-size: clamp(0.9rem, 1.3vw, 1.15rem);
-          font-weight: 600;
-        }
-
-        .final-emoji-row {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 1.4rem;
-          margin-top: 1.5vh;
-        }
-
-        .final-cake {
-          display: inline-block;
-          font-size: clamp(2.4rem, 5vw, 4.4rem);
-          line-height: 1;
-          animation: cakeWobble 2.6s ease-in-out infinite;
-          filter: drop-shadow(0 12px 24px rgb(244 201 93 / 40%));
-        }
-
-        .final-balloons {
-          font-size: clamp(1.4rem, 2.4vw, 2.2rem);
-          letter-spacing: 0.5rem;
-        }
-
-        .final-balloons span {
-          display: inline-block;
-          animation: floatUp 3.6s ease-in-out infinite;
-          filter: drop-shadow(0 6px 14px rgb(122 74 18 / 20%));
-        }
-
-        .final-balloons span:nth-child(2) { animation-delay: -0.7s; }
-        .final-balloons span:nth-child(3) { animation-delay: -1.4s; }
-        .final-balloons span:nth-child(4) { animation-delay: -2.1s; }
 
         .confetti {
-          position: absolute;
-          inset: 0;
+          display: flex;
+          justify-content: space-around;
+          flex-wrap: wrap;
           pointer-events: none;
-          overflow: hidden;
-          border-radius: 44px;
         }
 
         .confetti span {
+          display: inline-block;
+          padding: 4px;
+          animation: confettiFall 2.8s ease-in-out infinite;
+          animation-delay: calc(var(--i) * -0.13s);
+        }
+
+        .alert {
+          position: relative;
+          margin-bottom: 14px;
+          padding: 13px 42px 13px 15px;
+          border-radius: 12px;
+          font-size: 14px;
+          line-height: 1.5;
+        }
+
+        .alert.error {
+          border: 1px solid #f0bcbc;
+          background: #fff0f0;
+          color: #962d2d;
+        }
+
+        .alert.success {
+          border: 1px solid #b8dfc1;
+          background: #f0fbf2;
+          color: #246b39;
+        }
+
+        .dismiss {
           position: absolute;
-          top: -10%;
-          font-size: clamp(1rem, 1.6vw, 1.6rem);
-          animation: confettiFall 4.6s linear infinite;
-          animation-delay: calc(var(--i) * -0.3s);
-          left: calc(var(--i) * 5.2%);
-          filter: drop-shadow(0 4px 6px rgb(122 74 18 / 15%));
+          top: 6px;
+          right: 10px;
+          border: 0;
+          background: transparent;
+          color: inherit;
+          font-size: 24px;
+        }
+
+        footer {
+          padding: 24px 0 8px;
+          color: #9b8c7a;
+          font-size: 12px;
+          text-align: center;
+        }
+
+        footer span {
+          margin-left: 5px;
+          color: #c18b40;
         }
 
         @keyframes pulse {
-          0%, 100% { opacity: 0.4; }
-          50% { opacity: 1; }
-        }
-
-        @keyframes floatUp {
-          0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-14px); }
-        }
-
-        @keyframes cakeWobble {
-          0%, 100% { transform: rotate(-4deg); }
-          50% { transform: rotate(4deg); }
-        }
-
-        @keyframes goldGlow {
-          0%, 100% { opacity: 0.6; transform: scale(1); }
-          50% { opacity: 1; transform: scale(1.04); }
-        }
-
-        @keyframes nameFloat {
-          0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-6px); }
-        }
-
-        @keyframes confettiFall {
-          0% {
-            transform: translateY(0) rotate(0deg);
-            opacity: 1;
+          0%, 100% {
+            opacity: 0.45;
           }
-          100% {
-            transform: translateY(120vh) rotate(720deg);
-            opacity: 0.6;
+          50% {
+            opacity: 1;
           }
         }
 
         @keyframes finalAppear {
-          from { opacity: 0; transform: translateY(20px) scale(0.98); }
-          to { opacity: 1; transform: translateY(0) scale(1); }
-        }
-
-        @keyframes cardIn {
           from {
             opacity: 0;
-            transform: translateX(40px);
-          }
-          to {
-            opacity: 1;
-            transform: translateX(0);
-          }
-        }
-
-        @keyframes scoreDrop {
-          from {
-            opacity: 0;
-            transform: translateY(-20px) scale(0.95);
+            transform: translateY(18px) scale(0.97);
           }
           to {
             opacity: 1;
@@ -998,39 +1645,63 @@ function ScreenShell({ children }) {
           }
         }
 
-        @keyframes correctPulse {
-          0% { transform: scale(1); }
-          50% { transform: scale(1.03); }
-          100% { transform: scale(1); }
-        }
-
-        @keyframes revealIn {
-          from {
-            opacity: 0;
-            transform: translateY(12px);
+        @keyframes confettiFall {
+          0%, 100% {
+            transform: translateY(-4px) rotate(0deg);
           }
-          to {
-            opacity: 1;
-            transform: translateY(0);
+          50% {
+            transform: translateY(14px) rotate(20deg);
           }
         }
 
-        @media (max-width: 900px) {
-          .waiting {
-            grid-template-columns: 1fr;
-            text-align: center;
+        @media (max-width: 520px) {
+          .shell {
+            padding: 16px 12px 28px;
           }
 
-          .waiting-right {
-            order: -1;
+          .panel {
+            padding: 19px;
+            border-radius: 18px;
           }
 
-          .q-options {
-            grid-template-columns: 1fr;
+          .hero {
+            padding: 28px 18px;
           }
 
-          .podium-item {
-            flex-wrap: wrap;
+          .actions {
+            flex-direction: column;
+          }
+
+          .actions button {
+            width: 100%;
+          }
+
+          .room-head {
+            align-items: flex-start;
+          }
+
+          .room-code {
+            font-size: 25px;
+            letter-spacing: 2px;
+          }
+
+          .qr img {
+            width: 88px;
+            height: 88px;
+          }
+
+          .question-top {
+            align-items: flex-start;
+            flex-direction: column;
+          }
+
+          .score-row {
+            gap: 8px;
+            padding: 10px;
+          }
+
+          .points {
+            font-size: 12px;
           }
         }
 
@@ -1040,300 +1711,14 @@ function ScreenShell({ children }) {
           *::after {
             animation-duration: 0.01ms !important;
             animation-iteration-count: 1 !important;
+            scroll-behavior: auto !important;
           }
         }
       `}</style>
-    </>
-  );
-}
 
-/* ---------------- ЭКРАН: НЕТ КОДА ---------------- */
-
-function NoCodeScreen() {
-  return (
-    <div className="card">
-      <p className="eyebrow">ЭКРАН ДЛЯ ГОСТЕЙ</p>
-      <h1 style={{ fontSize: 'clamp(1.6rem, 3vw, 2.6rem)', margin: '0 0 1.2rem', color: '#7a4a12' }}>
-        Открой этот экран с кодом комнаты
-      </h1>
-      <p className="muted" style={{ fontSize: 'clamp(1rem, 1.4vw, 1.2rem)' }}>
-        В адресной строке добавь в конце <strong>?code=XXXXXX</strong>,
-        где XXXXXX — код комнаты.
-      </p>
-      <p className="muted" style={{ fontSize: 'clamp(1rem, 1.4vw, 1.2rem)' }}>
-        Пример: <strong>.../screen?code=H7QF7B</strong>
-      </p>
-    </div>
-  );
-}
-
-/* ---------------- ЭКРАН: ОЖИДАНИЕ ---------------- */
-
-function WaitingScreen({ code, players, hint }) {
-  const inviteBase =
-    typeof window !== 'undefined'
-      ? window.location.origin
-      : '';
-
-  const inviteUrl = inviteBase + '/?code=' + code;
-
-  const qrUrl =
-    'https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=' +
-    encodeURIComponent(inviteUrl);
-
-  const guests = (players || []).filter((p) => p.role !== 'nadya');
-  const nadyaConnected = (players || []).some((p) => p.role === 'nadya');
-
-  return (
-    <div className="card waiting">
-      <div className="waiting-left">
-        <p className="eyebrow">ПРАЗДНИЧНЫЙ КВИЗ</p>
-        <h1>
-          Надины <span>40</span>
-        </h1>
-
-        <p className="tagline">
-          Кто знает Надю лучше всех?
-        </p>
-
-        <div className="waiting-hint" key={hint}>
-          {hint}
-        </div>
-
-        <div className="player-counter">
-          Уже в комнате: {guests.length}{' '}
-          {guests.length === 1 ? 'гость' : 'гостей'}
-          {nadyaConnected ? ' · Надя на месте 👑' : ''}
-        </div>
-      </div>
-
-      <div className="waiting-right">
-        <p className="room-label">КОД КОМНАТЫ</p>
-        <h2 className="room-code">{code}</h2>
-
-        <div className="qr-wrap">
-          <img src={qrUrl} alt="QR-код для входа" />
-        </div>
-
-        <p className="join-instruction">
-          Открой камеру на телефоне и наведи на QR —
-          <br />
-          или зайди на <strong>{inviteBase.replace(/^https?:\/\//, '')}</strong>
-          <br />
-          и введи код <strong>{code}</strong>
-        </p>
-      </div>
-    </div>
-  );
-}
-
-/* ---------------- ЭКРАН: ВОПРОС ---------------- */
-
-function QuestionScreen({
-  playNumber,
-  totalQuestions,
-  question,
-  votingOpen,
-  correctAnswer,
-  secondsLeft,
-  isScoresQuestion,
-  answeredCount,
-  totalGuests
-}) {
-  const locked = correctAnswer !== null && correctAnswer !== undefined;
-  const progress = Math.min(100, (playNumber / totalQuestions) * 100);
-
-  const allAnswered = totalGuests > 0 && answeredCount >= totalGuests;
-
-  return (
-    <div className="card">
-      <div className="progress-bar">
-        <div
-          className="progress-fill"
-          style={{ width: progress + '%' }}
-        />
-      </div>
-
-      <div className="q-top">
-        <span className="q-pill">
-          ВОПРОС {playNumber} / {totalQuestions}
-        </span>
-
-        <span className={'q-status ' + (locked ? 'locked' : '')}>
-          {votingOpen ? '● Идёт голосование' : 'Ответы зафиксированы'}
-        </span>
-      </div>
-
-      <h1 className="q-text">{question.question_text}</h1>
-
-      <div className="q-options">
-        {question.options.map((option, index) => {
-          const isCorrect = correctAnswer === index;
-          const dim = locked && !isCorrect;
-
-          const classes =
-            'q-option' +
-            (isCorrect ? ' correct' : '') +
-            (dim ? ' dim' : '');
-
-          return (
-            <div key={index} className={classes}>
-              <span className="q-option-letter">
-                {String.fromCharCode(65 + index)}
-              </span>
-              <span>{option}</span>
-            </div>
-          );
-        })}
-      </div>
-
-      {locked && (
-        <div className="reveal-badge">
-          <strong>ОТВЕТ НАДИ:</strong>{' '}
-          {String.fromCharCode(65 + correctAnswer)}
-          {' · '}
-          {question.options[correctAnswer]}
-        </div>
-      )}
-
-      {votingOpen && (
-        <p className="voting-pulse">
-          <span>●</span>
-          {allAnswered
-            ? 'Все ответили! Ведущий может фиксировать.'
-            : totalGuests > 0
-              ? `Ответили: ${answeredCount} из ${totalGuests}`
-              : 'Ведущий ждёт, пока все ответят…'}
-        </p>
-      )}
-
-      {locked && isScoresQuestion && secondsLeft > 0 && (
-        <p className="scores-countdown">
-          Рейтинг после {playNumber}-го вопроса — через {secondsLeft}…
-        </p>
-      )}
-    </div>
-  );
-}
-
-/* ---------------- ЭКРАН: ПРОМЕЖУТОЧНЫЙ РЕЙТИНГ ---------------- */
-
-function IntermediateScoresScreen({ playNumber, ranked }) {
-  return (
-    <div className="card">
-      <p className="eyebrow">ПОСЛЕ {playNumber} ВОПРОСОВ</p>
-      <h1 className="scores-title">Кто впереди?</h1>
-      <p className="scores-sub">Топ-5 на данный момент</p>
-
-      <div className="scores-list">
-        {ranked.length === 0 && (
-          <p className="muted">Пока никто не набрал баллов.</p>
-        )}
-
-        {ranked.map((group, i) => (
-          <div
-            key={group.rank}
-            className={'score-item ' + (group.rank === 1 ? 'first' : '')}
-            style={{ animationDelay: (i * 0.15) + 's' }}
-          >
-            <span className="score-rank">
-              {medalFor(group.rank)}
-            </span>
-
-            <span className="score-names">
-              {group.players.map((p, idx) => (
-                <span key={p.player_id}>
-                  {idx > 0 && <span className="sep">·</span>}
-                  {p.display_name}
-                </span>
-              ))}
-            </span>
-
-            <span className="score-points">
-              {group.points}{' '}
-              {group.points === 1
-                ? 'балл'
-                : group.points > 1 && group.points < 5
-                  ? 'балла'
-                  : 'баллов'}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/* ---------------- ЭКРАН: ФИНАЛ ---------------- */
-
-function FinalScreen({ ranked }) {
-  return (
-    <div className="final-wrap">
-      <div className="confetti" aria-hidden="true">
-        {Array.from({ length: 20 }, (_, i) => (
-          <span key={i} style={{ '--i': i }}>
-            {['✦', '✧', '🎉', '★', '🎈'][i % 5]}
-          </span>
-        ))}
-      </div>
-
-      <div className="final-header">
-        <p className="final-eyebrow">🎉 ВИКТОРИНА ЗАВЕРШЕНА</p>
-        <h2 className="final-h2">Кто знает Надю лучше всех?</h2>
-      </div>
-
-      {ranked.length > 0 && (
-        <div className="final-top">
-          {ranked.map((group) => (
-            <div
-              key={group.rank}
-              className={'podium-item ' + podiumClassFor(group.rank)}
-            >
-              <span className="podium-medal">
-                {medalFor(group.rank)}
-              </span>
-
-              <span className="podium-names">
-                {group.players.map((p, idx) => (
-                  <span key={p.player_id}>
-                    {idx > 0 && <span className="sep">·</span>}
-                    {p.display_name}
-                  </span>
-                ))}
-              </span>
-
-              <span className="podium-points">
-                {group.points}{' '}
-                {group.points === 1
-                  ? 'балл'
-                  : group.points > 1 && group.points < 5
-                    ? 'балла'
-                    : 'баллов'}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="final-congrats">
-        <p className="final-congrats-eyebrow">ОТ ВСЕХ ГОСТЕЙ</p>
-
-        <h3 className="final-congrats-text">
-          Спасибо, <span>Надя</span>!
-        </h3>
-
-        <p className="final-congrats-sub">
-          С днём рождения! Пусть каждый день будет
-          таким же тёплым, как этот вечер
-        </p>
-
-        <div className="final-emoji-row">
-          <div className="final-cake" aria-hidden="true">🎂</div>
-          <div className="final-balloons" aria-hidden="true">
-            <span>🎈</span><span>🎈</span><span>🎈</span><span>🎈</span>
-          </div>
-        </div>
-      </div>
-    </div>
+      <footer>
+        Сделано с любовью для Надиного юбилея <span>✦</span>
+      </footer>
+    </main>
   );
 }
