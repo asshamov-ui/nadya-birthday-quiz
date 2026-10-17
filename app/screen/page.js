@@ -64,8 +64,12 @@ async function apiGetState(roomCode) {
 }
 
 /**
- * Группирует игроков по очкам и возвращает список «мест».
- * Если у нескольких игроков одинаковые очки — они делят место.
+ * Группирует игроков по очкам и возвращает список «мест»
+ * в олимпийской системе: если несколько игроков набрали
+ * одинаково, они делят место, а следующее место сдвигается
+ * на количество занятых.
+ *
+ * Пример: 5, 5, 4, 3, 3, 3 → места 1, 1, 3, 4, 4, 4
  */
 function groupByRank(scores) {
   if (!Array.isArray(scores) || scores.length === 0) return [];
@@ -77,16 +81,20 @@ function groupByRank(scores) {
   );
 
   const groups = [];
-  let placeIndex = 0;
   let lastPoints = null;
+  let place = 0;
 
   for (const s of sorted) {
     if (lastPoints === null || s.points !== lastPoints) {
-      placeIndex += 1;
+      // Новая группа — её место равно количеству уже разобранных
+      // игроков плюс один. Так места сдвигаются на количество
+      // тех, кто выше, а не на номер группы.
+      place =
+        groups.reduce((sum, g) => sum + g.players.length, 0) + 1;
       lastPoints = s.points;
 
       groups.push({
-        rank: placeIndex,
+        rank: place,
         points: s.points,
         players: [s]
       });
@@ -96,6 +104,20 @@ function groupByRank(scores) {
   }
 
   return groups.slice(0, TOP_PLACES);
+}
+
+function medalFor(rank) {
+  if (rank === 1) return '🥇';
+  if (rank === 2) return '🥈';
+  if (rank === 3) return '🥉';
+  return rank;
+}
+
+function podiumClassFor(rank) {
+  if (rank === 1) return 'gold';
+  if (rank === 2) return 'silver';
+  if (rank === 3) return 'bronze';
+  return '';
 }
 
 export default function ScreenPage() {
@@ -294,9 +316,7 @@ export default function ScreenPage() {
         />
       )}
 
-      {isFinished && (
-        <FinalScreen ranked={ranked} />
-      )}
+      {isFinished && <FinalScreen ranked={ranked} />}
 
       {showIntermediateScores && (
         <IntermediateScoresScreen
@@ -1199,8 +1219,6 @@ function QuestionScreen({
 /* ---------------- ЭКРАН: ПРОМЕЖУТОЧНЫЙ РЕЙТИНГ ---------------- */
 
 function IntermediateScoresScreen({ playNumber, ranked }) {
-  const medals = ['🥇', '🥈', '🥉', '4', '5'];
-
   return (
     <div className="card">
       <p className="eyebrow">ПОСЛЕ {playNumber} ВОПРОСОВ</p>
@@ -1219,7 +1237,7 @@ function IntermediateScoresScreen({ playNumber, ranked }) {
             style={{ animationDelay: (i * 0.15) + 's' }}
           >
             <span className="score-rank">
-              {medals[group.rank - 1] || group.rank}
+              {medalFor(group.rank)}
             </span>
 
             <span className="score-names">
@@ -1249,9 +1267,6 @@ function IntermediateScoresScreen({ playNumber, ranked }) {
 /* ---------------- ЭКРАН: ФИНАЛ ---------------- */
 
 function FinalScreen({ ranked }) {
-  const medals = ['🥇', '🥈', '🥉', '4', '5'];
-  const podiumClass = ['gold', 'silver', 'bronze', '', ''];
-
   return (
     <div className="final-wrap">
       <div className="confetti" aria-hidden="true">
@@ -1269,13 +1284,13 @@ function FinalScreen({ ranked }) {
 
       {ranked.length > 0 && (
         <div className="final-top">
-          {ranked.map((group, i) => (
+          {ranked.map((group) => (
             <div
               key={group.rank}
-              className={'podium-item ' + (podiumClass[i] || '')}
+              className={'podium-item ' + podiumClassFor(group.rank)}
             >
               <span className="podium-medal">
-                {medals[group.rank - 1] || group.rank}
+                {medalFor(group.rank)}
               </span>
 
               <span className="podium-names">
