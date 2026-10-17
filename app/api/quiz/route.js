@@ -102,13 +102,11 @@ export async function GET(request) {
       (a) => a.player_id === nadya?.id
     );
 
-    // Ответила ли Надя на текущий вопрос.
     const nadyaAnswered = !!nadyaRow;
 
     const locked =
       room.status === 'playing' && !room.voting_open;
 
-    // Ответ Нади не раскрывается до фиксации голосования.
     const nadyaAnswer =
       locked || room.status === 'finished'
         ? (nadyaRow?.selected_option ?? null)
@@ -150,7 +148,6 @@ export async function GET(request) {
       }
     }
 
-    // Считаем только зафиксированные вопросы.
     const lockedThrough =
       room.status === 'finished'
         ? TOTAL_QUESTIONS
@@ -232,7 +229,6 @@ export async function POST(request) {
     const body = await request.json();
     const supabase = db();
 
-    // Создание комнаты.
     if (body.action === 'create_room') {
       if (
         !process.env.HOST_PIN ||
@@ -286,7 +282,6 @@ export async function POST(request) {
     if (roomError) throw roomError;
     if (!room) return fail('Комната не найдена. Проверь код.', 404);
 
-    // Проверка ведущего.
     if (body.action === 'verify_host') {
       if (
         !process.env.HOST_PIN ||
@@ -302,7 +297,6 @@ export async function POST(request) {
       return ok({ room });
     }
 
-    // Подключение участника или Нади.
     if (body.action === 'join') {
       const displayName = String(body.display_name || '')
         .trim()
@@ -316,6 +310,17 @@ export async function POST(request) {
       }
 
       if (role === 'nadya') {
+        // Защита: только Надя может зайти под именинницей.
+        if (!process.env.NADYA_PIN) {
+          return fail(
+            'На сервере не настроен PIN именинницы (NADYA_PIN).'
+          );
+        }
+
+        if (String(body.nadya_pin || '') !== process.env.NADYA_PIN) {
+          return fail('Неверный PIN именинницы.', 401);
+        }
+
         const { data: existing, error: existingError } =
           await supabase
             .from('players')
@@ -352,7 +357,6 @@ export async function POST(request) {
       return ok({ player });
     }
 
-    // Сохранение или изменение ответа до фиксации.
     if (body.action === 'answer') {
       const { data: player, error: playerError } = await supabase
         .from('players')
@@ -416,7 +420,6 @@ export async function POST(request) {
       return ok({ success: true });
     }
 
-    // Управление игрой ведущим.
     if (body.action === 'host_action') {
       if (
         !process.env.HOST_PIN ||
@@ -444,7 +447,6 @@ export async function POST(request) {
           return fail('Сейчас нечего фиксировать.');
         }
 
-        // Проверяем, что Надя уже ответила на текущий вопрос.
         const step = Number(room.current_question_number);
         const actualNumber = PLAY_ORDER[step - 1];
 
