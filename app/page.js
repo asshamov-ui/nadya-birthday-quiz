@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 
+const STORAGE_KEY = 'nadya_quiz_session';
+
 async function api(payload) {
   const response = await fetch('/api/quiz', {
     method: payload ? 'POST' : 'GET',
@@ -39,6 +41,28 @@ async function apiGetState(roomCode, playerId) {
   return data;
 }
 
+function saveSession(session) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+  } catch (_) {}
+}
+
+function loadSession() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (_) {
+    return null;
+  }
+}
+
+function clearSession() {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch (_) {}
+}
+
 export default function Home() {
   const [mode, setMode] = useState('home');
   const [name, setName] = useState('');
@@ -51,20 +75,116 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [restoring, setRestoring] = useState(true);
 
+  // Восстановление сессии при загрузке.
   useEffect(() => {
+    const session = loadSession();
     const invite = new URLSearchParams(window.location.search).get('code');
+    const urlCode = invite ? invite.toUpperCase() : '';
 
-    if (invite) {
-      setCode(invite.toUpperCase());
-      setMode('join');
+    // Если в URL есть код, но нет сессии — идём в join.
+    if (!session) {
+      if (urlCode) {
+        setCode(urlCode);
+        setMode('join');
+      }
+      setRestoring(false);
+      return;
     }
+
+    // Есть сохранённая сессия — восстанавливаем.
+    const savedCode = session.room_code;
+    const savedRole = session.role;
+    const savedPlayerId = session.player_id;
+
+    if (!savedCode || !savedRole) {
+      clearSession();
+      setRestoring(false);
+      return;
+    }
+
+    setCode(savedCode);
+    setPin(session.host_pin || '');
+
+    (async () => {
+      try {
+        const fresh = await apiGetState(
+          savedCode,
+          savedPlayerId || undefined
+        );
+
+        if (!fresh?.room) {
+          // Комната больше не существует — сбрасываем.
+          clearSession();
+          if (urlCode) {
+            setCode(urlCode);
+            setMode('join');
+          }
+          setRestoring(false);
+          return;
+        }
+
+        // Если игра завершена — не восстанавливаем игрока,
+        // но даём посмотреть финал.
+        setRoom({ room_code: savedCode });
+        setState(fresh);
+
+        if (savedRole === 'host') {
+          setMode('host');
+        } else if (savedRole === 'nadya') {
+          // Находим себя в списке игроков.
+          const me = (fresh.players || []).find(
+            (p) => p.role === 'nadya'
+          );
+          if (me) {
+            setPlayer({
+              id: me.id,
+              display_name: me.display_name,
+              role: me.role
+            });
+            setName(me.display_name);
+            setMode('nadya');
+          } else {
+            // Нас нет в списке — сбрасываем.
+            clearSession();
+            setMode('join');
+          }
+        } else {
+          const me = (fresh.players || []).find(
+            (p) => p.id === savedPlayerId
+          );
+          if (me) {
+            setPlayer({
+              id: me.id,
+              display_name: me.display_name,
+              role: me.role
+            });
+            setName(me.display_name);
+            setMode('guest');
+          } else {
+            clearSession();
+            setMode('join');
+          }
+        }
+      } catch (_) {
+        // Если не удалось — не ломаем, показываем главную.
+        clearSession();
+        if (urlCode) {
+          setCode(urlCode);
+          setMode('join');
+        }
+      } finally {
+        setRestoring(false);
+      }
+    })();
   }, []);
 
+  // Опрос состояния — только когда есть код.
   useEffect(() => {
     const activeCode = room?.room_code || code;
 
-    if (!activeCode) return;
+    if (!activeCode || restoring) return;
 
     const timer = setInterval(async () => {
       try {
@@ -76,7 +196,7 @@ export default function Home() {
     }, 2200);
 
     return () => clearInterval(timer);
-  }, [room?.room_code, code, player?.id]);
+  }, [room?.room_code, code, player?.id, restoring]);
 
   async function run(action) {
     setBusy(true);
@@ -108,6 +228,13 @@ export default function Home() {
     setPlayer(null);
     setMode('host');
 
+    saveSession({
+      room_code: result.room.room_code,
+      role: 'host',
+      host_pin: pin,
+      player_id: null
+    });
+
     setState(await apiGetState(result.room.room_code));
 
     window.history.replaceState(
@@ -133,6 +260,13 @@ export default function Home() {
     setRoom(result.room);
     setCode(result.room.room_code);
     setPlayer(null);
+
+    saveSession({
+      room_code: result.room.room_code,
+      role: 'host',
+      host_pin: pin,
+      player_id: null
+    });
 
     setState(await apiGetState(result.room.room_code));
     setMode('host');
@@ -164,6 +298,12 @@ export default function Home() {
     setPlayer(result.player);
     setRoom({ room_code: roomCode });
     setMode(role === 'nadya' ? 'nadya' : 'guest');
+
+    saveSession({
+      room_code: roomCode,
+      role: role === 'nadya' ? 'nadya' : 'guest',
+      player_id: result.player.id
+    });
 
     setState(await apiGetState(roomCode, result.player.id));
 
@@ -221,6 +361,21 @@ export default function Home() {
     }
   }
 
+  function leaveRoom() {
+    clearSession();
+    setRoom(null);
+    setPlayer(null);
+    setState(null);
+    setMode('home');
+    setCode('');
+    setPin('');
+    setName('');
+    setNadyaPin('');
+    setNotice('');
+    setError('');
+    window.history.replaceState({}, '', '/');
+  }
+
   const question = state?.question;
   const rawMyAnswer = state?.my_answer;
   const myAnswer =
@@ -269,6 +424,19 @@ export default function Home() {
 
   const showRoomInfo = state?.room?.status === 'waiting';
 
+  if (restoring) {
+    return (
+      <main className="shell">
+        <div className="panel hero">
+          <div className="hero-mark">✦</div>
+          <p className="eyebrow">ПОДКЛЮЧАЕМСЯ</p>
+          <h2>Секунду…</h2>
+          <p className="muted">Восстанавливаем вашу сессию</p>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="shell">
       <header className="brand">
@@ -286,6 +454,19 @@ export default function Home() {
         <div className="player-name-bar" aria-label="Имя участника">
           <span>Вы вошли как</span>
           <strong>{player.display_name || name || 'Участник'}</strong>
+          <button className="leave-button" onClick={leaveRoom}>
+            Выйти
+          </button>
+        </div>
+      )}
+
+      {mode === 'host' && (
+        <div className="player-name-bar" aria-label="Панель ведущего">
+          <span>Режим</span>
+          <strong>Ведущий</strong>
+          <button className="leave-button" onClick={leaveRoom}>
+            Выйти
+          </button>
         </div>
       )}
 
@@ -967,6 +1148,21 @@ export default function Home() {
           font-size: 16px;
           overflow-wrap: anywhere;
           text-align: right;
+          flex: 1;
+        }
+
+        .leave-button {
+          padding: 6px 12px;
+          border: 1px solid #ead8bb;
+          border-radius: 10px;
+          background: #fff;
+          color: #9b713b;
+          font-size: 12px;
+          font-weight: 700;
+        }
+
+        .leave-button:hover {
+          background: #fff4df;
         }
 
         .eyebrow {
