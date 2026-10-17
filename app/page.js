@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 
 const STORAGE_KEY = 'nadya_quiz_session';
+const TOP_PLACES = 5;
 
 async function api(payload) {
   const response = await fetch('/api/quiz', {
@@ -61,6 +62,53 @@ function clearSession() {
   try {
     localStorage.removeItem(STORAGE_KEY);
   } catch (_) {}
+}
+
+/**
+ * Группирует игроков по очкам и возвращает список «мест»
+ * в олимпийской системе: если несколько игроков набрали
+ * одинаково, они делят место, а следующее место сдвигается
+ * на количество занятых.
+ *
+ * Пример: 5, 5, 4, 3, 3, 3 → места 1, 1, 3, 4, 4, 4
+ */
+function groupByRank(scores) {
+  if (!Array.isArray(scores) || scores.length === 0) return [];
+
+  const sorted = [...scores].sort(
+    (a, b) =>
+      b.points - a.points ||
+      a.display_name.localeCompare(b.display_name, 'ru')
+  );
+
+  const groups = [];
+  let lastPoints = null;
+  let place = 0;
+
+  for (const s of sorted) {
+    if (lastPoints === null || s.points !== lastPoints) {
+      place =
+        groups.reduce((sum, g) => sum + g.players.length, 0) + 1;
+      lastPoints = s.points;
+
+      groups.push({
+        rank: place,
+        points: s.points,
+        players: [s]
+      });
+    } else {
+      groups[groups.length - 1].players.push(s);
+    }
+  }
+
+  return groups.slice(0, TOP_PLACES);
+}
+
+function medalFor(rank) {
+  if (rank === 1) return '🏆';
+  if (rank === 2) return '🥈';
+  if (rank === 3) return '🥉';
+  return rank;
 }
 
 export default function Home() {
@@ -415,6 +463,8 @@ export default function Home() {
     (!state?.room || state.room.status === 'waiting');
 
   const showRoomInfo = state?.room?.status === 'waiting';
+
+  const ranked = groupByRank(state?.scores || []);
 
   if (restoring) {
     return (
@@ -1020,25 +1070,26 @@ export default function Home() {
               )}
 
               <div className="scores">
-                {(state?.scores || []).map((s, i) => (
-                  <div className="score-row" key={s.player_id}>
+                {ranked.map((group) => (
+                  <div className="score-row" key={group.rank}>
                     <span className="rank">
-                      {i === 0
-                        ? '🏆'
-                        : state?.room?.status === 'finished' && i === 1
-                          ? '🥈'
-                          : state?.room?.status === 'finished' && i === 2
-                            ? '🥉'
-                            : i + 1}
+                      {medalFor(group.rank)}
                     </span>
 
-                    <strong>{s.display_name}</strong>
+                    <strong className="names">
+                      {group.players.map((p, idx) => (
+                        <span key={p.player_id}>
+                          {idx > 0 && ' · '}
+                          {p.display_name}
+                        </span>
+                      ))}
+                    </strong>
 
                     <span className="points">
-                      {s.points}{' '}
-                      {s.points === 1
+                      {group.points}{' '}
+                      {group.points === 1
                         ? 'балл'
-                        : s.points > 1 && s.points < 5
+                        : group.points > 1 && group.points < 5
                           ? 'балла'
                           : 'баллов'}
                     </span>
@@ -1047,10 +1098,16 @@ export default function Home() {
               </div>
 
               {state?.room?.status === 'finished' &&
-                state?.scores?.length > 0 && (
+                ranked.length > 0 && (
                   <div className="winner-message">
-                    🥳 Победитель:{' '}
-                    <strong>{state.scores[0].display_name}</strong>!
+                    🥳 Победитель
+                    {ranked[0].players.length > 1 ? 'и' : ''}:{' '}
+                    <strong>
+                      {ranked[0].players
+                        .map((p) => p.display_name)
+                        .join(' · ')}
+                    </strong>
+                    !
                   </div>
                 )}
             </section>
@@ -1529,9 +1586,10 @@ export default function Home() {
           font-weight: 800;
         }
 
-        .score-row strong {
+        .score-row .names {
           min-width: 0;
           overflow-wrap: anywhere;
+          text-align: left;
         }
 
         .points {
