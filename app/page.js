@@ -44,6 +44,7 @@ export default function Home() {
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [pin, setPin] = useState('');
+  const [nadyaPin, setNadyaPin] = useState('');
   const [room, setRoom] = useState(null);
   const [player, setPlayer] = useState(null);
   const [state, setState] = useState(null);
@@ -145,7 +146,7 @@ export default function Home() {
     setNotice('Вход ведущего выполнен.');
   }
 
-  async function joinRoom(role = 'guest') {
+  async function joinRoom(role = 'guest', nadyaPinValue = '') {
     const roomCode = code.trim().toUpperCase();
 
     const result = await run(() =>
@@ -153,7 +154,8 @@ export default function Home() {
         action: 'join',
         room_code: roomCode,
         display_name: name.trim(),
-        role
+        role,
+        nadya_pin: role === 'nadya' ? nadyaPinValue : undefined
       })
     );
 
@@ -428,7 +430,11 @@ export default function Home() {
           <button
             className="text-button full"
             disabled={busy || !code.trim() || !name.trim()}
-            onClick={() => joinRoom('nadya')}
+            onClick={() => {
+              setError('');
+              setNadyaPin('');
+              setMode('nadya-pin');
+            }}
           >
             Я Надя — отвечать за именинницу
           </button>
@@ -441,6 +447,47 @@ export default function Home() {
             }}
           >
             Я ведущий
+          </button>
+        </section>
+      )}
+
+      {mode === 'nadya-pin' && (
+        <section className="panel form-panel">
+          <button
+            className="back"
+            onClick={() => setMode('join')}
+          >
+            ← Назад
+          </button>
+
+          <p className="eyebrow">ВХОД ДЛЯ ИМЕНИННИЦЫ</p>
+          <h2>Только для Нади</h2>
+
+          <p className="muted">
+            Введи секретный PIN именинницы.
+          </p>
+
+          <label>
+            PIN именинницы
+            <input
+              value={nadyaPin}
+              onChange={(e) =>
+                setNadyaPin(e.target.value.replace(/\D/g, '').slice(0, 4))
+              }
+              type="password"
+              inputMode="numeric"
+              placeholder="4 цифры"
+              maxLength={4}
+              autoComplete="off"
+            />
+          </label>
+
+          <button
+            className="primary full"
+            disabled={busy || nadyaPin.length !== 4}
+            onClick={() => joinRoom('nadya', nadyaPin)}
+          >
+            {busy ? 'Проверяем…' : 'Войти как Надя'}
           </button>
         </section>
       )}
